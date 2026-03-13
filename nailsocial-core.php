@@ -38,9 +38,11 @@ class NailSocial_Core {
     public static function activate() {
         update_option('classic-editor-replace', 'classic');
         update_option('classic-editor-allow-users', 'disallow');
+        NailSocial_DB::install_or_upgrade();
     }
 
     private function includes() {
+        require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-db.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-settings.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-cpt.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-api.php';
@@ -58,6 +60,7 @@ class NailSocial_Core {
     }
 
     public function init_features() {
+        NailSocial_DB::maybe_upgrade();
         // Initialize child classes
         NailSocial_Settings::get_instance();
         NailSocial_CPT::get_instance();

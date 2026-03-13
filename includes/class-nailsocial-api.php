@@ -65,6 +65,13 @@ class NailSocial_API {
             'permission_callback' => '__return_true',
         ]);
 
+        // GET /reels/(?P<id>\d+)/comments
+        register_rest_route($this->namespace, '/reels/(?P<id>\d+)/comments', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_reel_comments'],
+            'permission_callback' => '__return_true',
+        ]);
+
         // GET /collections
         register_rest_route($this->namespace, '/collections', [
             'methods' => 'GET',
@@ -83,6 +90,13 @@ class NailSocial_API {
         register_rest_route($this->namespace, '/posts', [
             'methods' => 'GET',
             'callback' => [$this, 'get_posts_feed'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // GET /posts/(?P<id>\d+)/comments
+        register_rest_route($this->namespace, '/posts/(?P<id>\d+)/comments', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_post_comments'],
             'permission_callback' => '__return_true',
         ]);
 
@@ -237,6 +251,20 @@ class NailSocial_API {
         register_rest_route($this->namespace, '/reviews', [
             'methods' => 'POST',
             'callback' => [$this, 'create_review'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /comments
+        register_rest_route($this->namespace, '/comments', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_comments'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // POST /comments
+        register_rest_route($this->namespace, '/comments', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_comment'],
             'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
@@ -1682,43 +1710,103 @@ class NailSocial_API {
         ];
     }
 
+    private function get_review_row_response($review) {
+        $reviewer_id = (int) $review['user_id'];
+        $photos = [];
+        if (!empty($review['photos'])) {
+            $decoded = json_decode((string) $review['photos'], true);
+            if (is_array($decoded)) {
+                $photos = $decoded;
+            }
+        }
+
+        return [
+            'id' => (string) $review['id'],
+            'legacy_post_id' => !empty($review['legacy_post_id']) ? (string) $review['legacy_post_id'] : '',
+            'salon_id' => (string) $review['salon_id'],
+            'appointment_id' => (string) $review['appointment_id'],
+            'user_id' => $reviewer_id ? (string) $reviewer_id : '',
+            'rating' => (float) $review['rating'],
+            'comment' => (string) $review['comment'],
+            'photos' => $photos,
+            'status' => (string) $review['status'],
+            'created_at' => mysql_to_rfc3339((string) $review['created_at']),
+            'user' => [
+                'name' => $reviewer_id ? get_the_author_meta('display_name', $reviewer_id) : '',
+                'avatar' => $reviewer_id ? (get_user_meta($reviewer_id, 'avatar_url', true) ?: get_avatar_url($reviewer_id)) : '',
+            ],
+        ];
+    }
+
+    private function upsert_review_stats($salon_id, $rating, $created_at) {
+        global $wpdb;
+
+        $stats_table = NailSocial_DB::get_review_stats_table();
+        $stats = $wpdb->get_row($wpdb->prepare(
+            "SELECT salon_id, review_count, rating_sum FROM {$stats_table} WHERE salon_id = %d LIMIT 1",
+            $salon_id
+        ), ARRAY_A);
+
+        if ($stats) {
+            $review_count = ((int) $stats['review_count']) + 1;
+            $rating_sum = ((float) $stats['rating_sum']) + (float) $rating;
+        } else {
+            $review_count = 1;
+            $rating_sum = (float) $rating;
+        }
+
+        $rating_avg = round($rating_sum / max($review_count, 1), 2);
+
+        $wpdb->replace($stats_table, [
+            'salon_id' => (int) $salon_id,
+            'review_count' => $review_count,
+            'rating_sum' => $rating_sum,
+            'rating_avg' => $rating_avg,
+            'last_review_at' => $created_at,
+            'updated_at' => current_time('mysql', true),
+        ], [
+            '%d',
+            '%d',
+            '%f',
+            '%f',
+            '%s',
+            '%s',
+        ]);
+
+        update_post_meta($salon_id, 'rating', $rating_avg);
+        update_post_meta($salon_id, 'reviews_count', $review_count);
+    }
+
     public function get_salon_reviews($request) {
+        global $wpdb;
+
         $salon = $this->get_salon_post($request['id_or_slug']);
         if (!$salon) {
             return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
         }
 
-        $reviews = get_posts([
-            'post_type' => 'salon_review',
-            'post_status' => 'publish',
-            'posts_per_page' => 100,
-            'meta_key' => 'salon_id',
-            'meta_value' => (string) $salon->ID,
-            'orderby' => 'date',
-            'order' => 'DESC',
-        ]);
+        $reviews_table = NailSocial_DB::get_reviews_table();
+        $limit = isset($request['limit']) ? max(1, min(100, absint($request['limit']))) : 20;
+        $page = isset($request['page']) ? max(1, absint($request['page'])) : 1;
+        $offset = ($page - 1) * $limit;
 
-        return array_map(function ($review) {
-            $reviewer_id = (int) get_post_meta($review->ID, 'user_id', true);
-            return [
-                'id' => (string) $review->ID,
-                'salon_id' => (string) get_post_meta($review->ID, 'salon_id', true),
-                'appointment_id' => (string) get_post_meta($review->ID, 'appointment_id', true),
-                'user_id' => $reviewer_id ? (string) $reviewer_id : '',
-                'rating' => (float) get_post_meta($review->ID, 'rating', true),
-                'comment' => $review->post_content,
-                'photos' => get_post_meta($review->ID, 'photos', true) ?: [],
-                'status' => get_post_meta($review->ID, 'status', true) ?: 'published',
-                'created_at' => get_the_date('c', $review->ID),
-                'user' => [
-                    'name' => $reviewer_id ? get_the_author_meta('display_name', $reviewer_id) : '',
-                    'avatar' => $reviewer_id ? (get_user_meta($reviewer_id, 'avatar_url', true) ?: get_avatar_url($reviewer_id)) : '',
-                ],
-            ];
-        }, $reviews);
+        $reviews = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$reviews_table}
+             WHERE salon_id = %d AND status = %s
+             ORDER BY created_at DESC
+             LIMIT %d OFFSET %d",
+            $salon->ID,
+            'published',
+            $limit,
+            $offset
+        ), ARRAY_A);
+
+        return array_map([$this, 'get_review_row_response'], $reviews ?: []);
     }
 
     public function create_review($request) {
+        global $wpdb;
+
         $params = $request->get_json_params();
         $appointment_id = !empty($params['appointment_id']) ? absint($params['appointment_id']) : 0;
         $user_id = !empty($params['user_id']) ? absint($params['user_id']) : $this->get_requested_user_id($request);
@@ -1754,7 +1842,7 @@ class NailSocial_API {
             return new WP_Error('invalid_salon', 'Appointment is missing salon information', ['status' => 400]);
         }
 
-        $review_id = wp_insert_post([
+        $legacy_review_id = wp_insert_post([
             'post_type' => 'salon_review',
             'post_title' => sprintf('Review for booking #%d', $appointment_id),
             'post_content' => $comment,
@@ -1762,40 +1850,248 @@ class NailSocial_API {
             'post_author' => $user_id,
         ]);
 
-        if (is_wp_error($review_id)) {
-            return $review_id;
+        if (is_wp_error($legacy_review_id)) {
+            return $legacy_review_id;
         }
 
-        update_post_meta($review_id, 'salon_id', (string) $salon_id);
-        update_post_meta($review_id, 'appointment_id', (string) $appointment_id);
-        update_post_meta($review_id, 'user_id', (string) $user_id);
-        update_post_meta($review_id, 'rating', $rating);
-        update_post_meta($review_id, 'photos', $photos);
-        update_post_meta($review_id, 'status', 'published');
+        update_post_meta($legacy_review_id, 'salon_id', (string) $salon_id);
+        update_post_meta($legacy_review_id, 'appointment_id', (string) $appointment_id);
+        update_post_meta($legacy_review_id, 'user_id', (string) $user_id);
+        update_post_meta($legacy_review_id, 'rating', $rating);
+        update_post_meta($legacy_review_id, 'photos', $photos);
+        update_post_meta($legacy_review_id, 'status', 'published');
+
+        $reviews_table = NailSocial_DB::get_reviews_table();
+        $created_at = current_time('mysql', true);
+        $inserted = $wpdb->insert($reviews_table, [
+            'legacy_post_id' => $legacy_review_id,
+            'salon_id' => $salon_id,
+            'appointment_id' => $appointment_id,
+            'user_id' => $user_id,
+            'rating' => $rating,
+            'comment' => $comment,
+            'photos' => wp_json_encode($photos),
+            'status' => 'published',
+            'created_at' => $created_at,
+            'updated_at' => $created_at,
+        ], [
+            '%d',
+            '%d',
+            '%d',
+            '%d',
+            '%f',
+            '%s',
+            '%s',
+            '%s',
+            '%s',
+            '%s',
+        ]);
+
+        if ($inserted === false) {
+            wp_delete_post($legacy_review_id, true);
+            return new WP_Error('review_insert_failed', 'Failed to save review record', ['status' => 500]);
+        }
+
+        $review_id = (int) $wpdb->insert_id;
 
         update_post_meta($appointment_id, 'review_submitted', '1');
         update_post_meta($appointment_id, 'review_id', (string) $review_id);
-
-        $review_posts = get_posts([
-            'post_type' => 'salon_review',
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'meta_key' => 'salon_id',
-            'meta_value' => (string) $salon_id,
-        ]);
-
-        $ratings = [];
-        foreach ($review_posts as $review_post) {
-            $ratings[] = (float) get_post_meta($review_post->ID, 'rating', true);
-        }
-        if (!empty($ratings)) {
-            update_post_meta($salon_id, 'rating', round(array_sum($ratings) / count($ratings), 1));
-            update_post_meta($salon_id, 'reviews_count', count($ratings));
-        }
+        $this->upsert_review_stats($salon_id, $rating, $created_at);
 
         return [
             'success' => true,
             'review_id' => (string) $review_id,
+            'legacy_post_id' => (string) $legacy_review_id,
+        ];
+    }
+
+    private function normalize_comment_entity_type($entity_type) {
+        $entity_type = strtolower((string) $entity_type);
+        if (in_array($entity_type, ['post', 'nail_art'], true)) {
+            return 'nail_art';
+        }
+        if ($entity_type === 'reel') {
+            return 'reel';
+        }
+        return '';
+    }
+
+    private function get_comment_entity_post($entity_type, $entity_id) {
+        $normalized = $this->normalize_comment_entity_type($entity_type);
+        if ($normalized === '' || $entity_id <= 0) {
+            return null;
+        }
+
+        $post = get_post($entity_id);
+        if (!$post || $post->post_type !== $normalized) {
+            return null;
+        }
+
+        return $post;
+    }
+
+    private function get_comment_response_row($comment) {
+        $user_id = (int) $comment['user_id'];
+        $created_at = (string) $comment['created_at'];
+        $timestamp = mysql2date('U', $created_at, false);
+
+        return [
+            'id' => (string) $comment['id'],
+            'entity_type' => $comment['entity_type'] === 'nail_art' ? 'post' : $comment['entity_type'],
+            'entity_id' => (string) $comment['entity_id'],
+            'parent_id' => (string) $comment['parent_id'],
+            'user_id' => (string) $user_id,
+            'text' => (string) $comment['body'],
+            'likes' => (int) $comment['like_count'],
+            'reply_count' => (int) $comment['reply_count'],
+            'status' => (string) $comment['status'],
+            'time' => $timestamp ? human_time_diff($timestamp, current_time('timestamp')) . ' ago' : '',
+            'created_at' => mysql_to_rfc3339($created_at),
+            'user' => [
+                'name' => $user_id ? get_the_author_meta('display_name', $user_id) : '',
+                'avatar' => $user_id ? (get_user_meta($user_id, 'avatar_url', true) ?: get_avatar_url($user_id)) : '',
+            ],
+        ];
+    }
+
+    private function sync_entity_comment_count($entity_type, $entity_id) {
+        global $wpdb;
+
+        $post = $this->get_comment_entity_post($entity_type, $entity_id);
+        if (!$post) {
+            return;
+        }
+
+        $comments_table = NailSocial_DB::get_comments_table();
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$comments_table}
+             WHERE entity_type = %s AND entity_id = %d AND status = %s AND deleted_at IS NULL",
+            $post->post_type,
+            $entity_id,
+            'published'
+        ));
+
+        update_post_meta($entity_id, 'comments_count', $count);
+    }
+
+    public function get_comments($request) {
+        global $wpdb;
+
+        $entity_type = $this->normalize_comment_entity_type($request->get_param('entity_type'));
+        $entity_id = absint($request->get_param('entity_id'));
+
+        if ($entity_type === '' || $entity_id <= 0) {
+            return new WP_Error('invalid_entity', 'A valid entity_type and entity_id are required', ['status' => 400]);
+        }
+
+        if (!$this->get_comment_entity_post($entity_type, $entity_id)) {
+            return new WP_Error('entity_not_found', 'Comment target not found', ['status' => 404]);
+        }
+
+        $limit = isset($request['limit']) ? max(1, min(100, absint($request['limit']))) : 50;
+        $comments_table = NailSocial_DB::get_comments_table();
+
+        $comments = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$comments_table}
+             WHERE entity_type = %s
+               AND entity_id = %d
+               AND parent_id = 0
+               AND status = %s
+               AND deleted_at IS NULL
+             ORDER BY created_at ASC
+             LIMIT %d",
+            $entity_type,
+            $entity_id,
+            'published',
+            $limit
+        ), ARRAY_A);
+
+        return array_map([$this, 'get_comment_response_row'], $comments ?: []);
+    }
+
+    public function get_post_comments($request) {
+        $request->set_param('entity_type', 'post');
+        $request->set_param('entity_id', $request['id']);
+        return $this->get_comments($request);
+    }
+
+    public function get_reel_comments($request) {
+        $request->set_param('entity_type', 'reel');
+        $request->set_param('entity_id', $request['id']);
+        return $this->get_comments($request);
+    }
+
+    public function create_comment($request) {
+        global $wpdb;
+
+        $params = $request->get_json_params();
+        $entity_type = $this->normalize_comment_entity_type(isset($params['entity_type']) ? $params['entity_type'] : '');
+        $entity_id = !empty($params['entity_id']) ? absint($params['entity_id']) : 0;
+        $parent_id = !empty($params['parent_id']) ? absint($params['parent_id']) : 0;
+        $user_id = !empty($params['user_id']) ? absint($params['user_id']) : $this->get_requested_user_id($request);
+        $body = isset($params['text']) ? wp_kses_post($params['text']) : '';
+
+        if ($entity_type === '' || $entity_id <= 0 || $user_id <= 0 || $body === '') {
+            return new WP_Error('missing_fields', 'entity_type, entity_id, user, and text are required', ['status' => 400]);
+        }
+
+        $target = $this->get_comment_entity_post($entity_type, $entity_id);
+        if (!$target) {
+            return new WP_Error('entity_not_found', 'Comment target not found', ['status' => 404]);
+        }
+
+        $comments_table = NailSocial_DB::get_comments_table();
+        $created_at = current_time('mysql', true);
+        $inserted = $wpdb->insert($comments_table, [
+            'entity_type' => $target->post_type,
+            'entity_id' => $entity_id,
+            'parent_id' => $parent_id,
+            'user_id' => $user_id,
+            'body' => $body,
+            'status' => 'published',
+            'like_count' => 0,
+            'reply_count' => 0,
+            'created_at' => $created_at,
+            'updated_at' => $created_at,
+            'deleted_at' => null,
+        ], [
+            '%s',
+            '%d',
+            '%d',
+            '%d',
+            '%s',
+            '%s',
+            '%d',
+            '%d',
+            '%s',
+            '%s',
+            '%s',
+        ]);
+
+        if ($inserted === false) {
+            return new WP_Error('comment_insert_failed', 'Failed to save comment', ['status' => 500]);
+        }
+
+        $comment_id = (int) $wpdb->insert_id;
+
+        if ($parent_id > 0) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$comments_table} SET reply_count = reply_count + 1, updated_at = %s WHERE id = %d",
+                current_time('mysql', true),
+                $parent_id
+            ));
+        }
+
+        $this->sync_entity_comment_count($target->post_type, $entity_id);
+
+        $comment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$comments_table} WHERE id = %d LIMIT 1",
+            $comment_id
+        ), ARRAY_A);
+
+        return [
+            'success' => true,
+            'comment' => $this->get_comment_response_row($comment),
         ];
     }
 
