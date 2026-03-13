@@ -163,6 +163,48 @@ class NailSocial_API {
             'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
+        // GET /salons/(?P<id_or_slug>[\w-]+)/services
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/services', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_salon_services'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // POST /salons/(?P<id_or_slug>[\w-]+)/services
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/services', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_salon_service'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /salons/(?P<id_or_slug>[\w-]+)/appointments
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/appointments', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_salon_appointments'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /salons/(?P<id_or_slug>[\w-]+)/appointments
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/appointments', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_salon_appointment'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /appointments/(?P<id>\d+)
+        register_rest_route($this->namespace, '/appointments/(?P<id>\d+)', [
+            'methods' => 'POST',
+            'callback' => [$this, 'update_appointment'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /users/(?P<id>\d+)/appointments
+        register_rest_route($this->namespace, '/users/(?P<id>\d+)/appointments', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_user_appointments'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
         // GET /reels/(?P<id>\d+)
         register_rest_route($this->namespace, '/reels/(?P<id>\d+)', [
             'methods' => 'GET',
@@ -283,6 +325,144 @@ class NailSocial_API {
         }
 
         return $this->get_service_user_id();
+    }
+
+    private function get_salon_post($id_or_slug) {
+        if (is_numeric($id_or_slug)) {
+            $salon = get_post((int) $id_or_slug);
+            return ($salon && $salon->post_type === 'salon') ? $salon : null;
+        }
+
+        $salons = get_posts([
+            'post_type' => 'salon',
+            'name' => sanitize_title($id_or_slug),
+            'posts_per_page' => 1,
+            'post_status' => 'publish',
+        ]);
+
+        return !empty($salons) ? $salons[0] : null;
+    }
+
+    private function get_service_posts($salon_id) {
+        return get_posts([
+            'post_type' => 'salon_service',
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'meta_key' => 'salon_id',
+            'meta_value' => (string) $salon_id,
+            'orderby' => 'title',
+            'order' => 'ASC',
+        ]);
+    }
+
+    private function format_salon_service($service_post) {
+        $duration_value = get_post_meta($service_post->ID, 'duration_minutes', true);
+        $duration_minutes = absint($duration_value ?: 60);
+        $price = (float) get_post_meta($service_post->ID, 'price', true);
+        $status = get_post_meta($service_post->ID, 'status', true) ?: 'active';
+
+        return [
+            'id' => (string) $service_post->ID,
+            'salonId' => (string) get_post_meta($service_post->ID, 'salon_id', true),
+            'name' => $service_post->post_title,
+            'description' => get_post_meta($service_post->ID, 'description', true) ?: '',
+            'price' => $price,
+            'duration' => sprintf('%d mins', $duration_minutes),
+            'duration_minutes' => $duration_minutes,
+            'category' => get_post_meta($service_post->ID, 'category', true) ?: '',
+            'status' => $status,
+        ];
+    }
+
+    private function calculate_end_time($start_time, $duration_minutes) {
+        $timestamp = strtotime(sprintf('2000-01-01 %s', $start_time));
+        if (!$timestamp) return '';
+        return gmdate('H:i', $timestamp + (absint($duration_minutes) * 60));
+    }
+
+    private function format_booking_status($status) {
+        $status = sanitize_text_field((string) $status);
+        if ($status === '') return 'Pending';
+
+        $normalized = strtolower($status);
+        $map = [
+            'pending' => 'Pending',
+            'confirmed' => 'Confirmed',
+            'checked-in' => 'Checked-in',
+            'in service' => 'In Service',
+            'in-service' => 'In Service',
+            'completed' => 'Completed',
+            'cancelled' => 'Cancelled',
+            'no-show' => 'No-show',
+        ];
+
+        return isset($map[$normalized]) ? $map[$normalized] : ucwords(str_replace(['-', '_'], ' ', $normalized));
+    }
+
+    private function format_appointment($booking_post) {
+        $service_id = (int) get_post_meta($booking_post->ID, 'service_id', true);
+        $service_post = $service_id ? get_post($service_id) : null;
+        $duration_minutes = absint(get_post_meta($booking_post->ID, 'duration_minutes', true) ?: 60);
+        $price = (float) get_post_meta($booking_post->ID, 'price', true);
+        $client_id = (int) get_post_meta($booking_post->ID, 'client_id', true);
+        $client = $client_id ? get_userdata($client_id) : null;
+
+        return [
+            'id' => (string) $booking_post->ID,
+            'salon_id' => (string) get_post_meta($booking_post->ID, 'salon_id', true),
+            'client_id' => $client_id ? (string) $client_id : '',
+            'client_name' => get_post_meta($booking_post->ID, 'client_name', true) ?: ($client ? $client->display_name : ''),
+            'client_phone' => get_post_meta($booking_post->ID, 'client_phone', true) ?: '',
+            'client_email' => get_post_meta($booking_post->ID, 'client_email', true) ?: ($client ? $client->user_email : ''),
+            'service_id' => $service_id ? (string) $service_id : '',
+            'service_name' => $service_post ? $service_post->post_title : '',
+            'appointment_date' => get_post_meta($booking_post->ID, 'appointment_date', true) ?: '',
+            'start_time' => get_post_meta($booking_post->ID, 'start_time', true) ?: '',
+            'end_time' => get_post_meta($booking_post->ID, 'end_time', true) ?: '',
+            'duration' => sprintf('%d mins', $duration_minutes),
+            'duration_minutes' => $duration_minutes,
+            'status' => $this->format_booking_status(get_post_meta($booking_post->ID, 'status', true)),
+            'booking_source' => get_post_meta($booking_post->ID, 'booking_source', true) ?: 'App',
+            'booking_type' => get_post_meta($booking_post->ID, 'booking_type', true) ?: 'online',
+            'price' => $price,
+            'payment_status' => get_post_meta($booking_post->ID, 'payment_status', true) ?: 'Unpaid',
+            'notes' => get_post_meta($booking_post->ID, 'notes', true) ?: '',
+            'created_at' => get_the_date('c', $booking_post->ID),
+            'updated_at' => get_post_modified_time('c', false, $booking_post->ID),
+        ];
+    }
+
+    private function create_salon_service_post($salon_id, $service, $author_id = 0) {
+        $name = isset($service['name']) ? sanitize_text_field($service['name']) : '';
+        if ($name === '') return 0;
+
+        $duration_minutes = absint($service['duration_minutes'] ?? 0);
+        if (!$duration_minutes && !empty($service['duration'])) {
+            $duration_minutes = absint($service['duration']);
+        }
+        if (!$duration_minutes) {
+            $duration_minutes = 60;
+        }
+
+        $service_id = wp_insert_post([
+            'post_type' => 'salon_service',
+            'post_title' => $name,
+            'post_status' => 'publish',
+            'post_author' => $author_id > 0 ? $author_id : $this->get_service_user_id(),
+        ]);
+
+        if (is_wp_error($service_id)) {
+            return 0;
+        }
+
+        update_post_meta($service_id, 'salon_id', (string) $salon_id);
+        update_post_meta($service_id, 'price', isset($service['price']) ? (float) $service['price'] : 0);
+        update_post_meta($service_id, 'duration_minutes', $duration_minutes);
+        update_post_meta($service_id, 'category', isset($service['category']) ? sanitize_text_field($service['category']) : '');
+        update_post_meta($service_id, 'description', isset($service['description']) ? sanitize_textarea_field($service['description']) : '');
+        update_post_meta($service_id, 'status', !empty($service['status']) ? sanitize_text_field($service['status']) : 'active');
+
+        return (int) $service_id;
     }
 
     /**
@@ -834,16 +1014,7 @@ class NailSocial_API {
      */
     public function get_salon($request) {
         $id_or_slug = $request['id_or_slug'];
-        if (is_numeric($id_or_slug)) {
-            $salon = get_post($id_or_slug);
-        } else {
-            $salons = get_posts([
-                'post_type' => 'salon',
-                'name' => $id_or_slug,
-                'posts_per_page' => 1
-            ]);
-            $salon = !empty($salons) ? $salons[0] : null;
-        }
+        $salon = $this->get_salon_post($id_or_slug);
 
         if (!$salon || $salon->post_type !== 'salon') {
             return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
@@ -927,11 +1098,228 @@ class NailSocial_API {
         update_post_meta($post_id, 'reviews_count', isset($params['reviews']) ? (int) $params['reviews'] : 0);
         update_post_meta($post_id, 'is_open', !empty($params['isOpen']) ? '1' : '0');
 
+        if (!empty($params['services']) && is_array($params['services'])) {
+            foreach ($params['services'] as $service) {
+                if (!is_array($service)) continue;
+                $this->create_salon_service_post($post_id, $service, $author_id);
+            }
+        }
+
         return [
             'success' => true,
             'id' => (string) $post_id,
             'salon' => $this->get_salon(['id_or_slug' => (string) $post_id]),
         ];
+    }
+
+    public function get_salon_services($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $services = array_map([$this, 'format_salon_service'], $this->get_service_posts($salon->ID));
+        return $services;
+    }
+
+    public function create_salon_service($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $params = $request->get_json_params();
+        $this->assume_service_user_if_token($request);
+        $current_user_id = get_current_user_id();
+
+        if (!$this->has_valid_api_token($request) && $current_user_id !== (int) $salon->post_author && !current_user_can('edit_post', $salon->ID)) {
+            return new WP_Error('forbidden', 'You are not allowed to manage services for this salon', ['status' => 403]);
+        }
+
+        $service_id = $this->create_salon_service_post($salon->ID, $params, (int) $salon->post_author);
+        if (!$service_id) {
+            return new WP_Error('invalid_service', 'Service name is required', ['status' => 400]);
+        }
+
+        $service_post = get_post($service_id);
+        return [
+            'success' => true,
+            'service' => $this->format_salon_service($service_post),
+        ];
+    }
+
+    public function get_salon_appointments($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $this->assume_service_user_if_token($request);
+        $current_user_id = get_current_user_id();
+        if (!$this->has_valid_api_token($request) && $current_user_id !== (int) $salon->post_author && !current_user_can('edit_post', $salon->ID)) {
+            return new WP_Error('forbidden', 'You are not allowed to view appointments for this salon', ['status' => 403]);
+        }
+
+        $bookings = get_posts([
+            'post_type' => 'salon_booking',
+            'post_status' => 'publish',
+            'posts_per_page' => 100,
+            'meta_key' => 'salon_id',
+            'meta_value' => (string) $salon->ID,
+            'orderby' => 'date',
+            'order' => 'DESC',
+        ]);
+
+        return array_map([$this, 'format_appointment'], $bookings);
+    }
+
+    public function create_salon_appointment($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $params = $request->get_json_params();
+        $this->assume_service_user_if_token($request);
+
+        $service_id = !empty($params['service_id']) ? (int) $params['service_id'] : 0;
+        $service_post = $service_id ? get_post($service_id) : null;
+        if (!$service_post || $service_post->post_type !== 'salon_service' || (string) get_post_meta($service_id, 'salon_id', true) !== (string) $salon->ID) {
+            return new WP_Error('invalid_service', 'Selected service is invalid', ['status' => 400]);
+        }
+
+        $appointment_date = isset($params['appointment_date']) ? sanitize_text_field($params['appointment_date']) : '';
+        $start_time = isset($params['start_time']) ? sanitize_text_field($params['start_time']) : '';
+        if ($appointment_date === '' || $start_time === '') {
+            return new WP_Error('missing_fields', 'Appointment date and time are required', ['status' => 400]);
+        }
+
+        $client_id = !empty($params['client_id']) ? (int) $params['client_id'] : 0;
+        $client = $client_id ? get_userdata($client_id) : null;
+        $client_name = isset($params['client_name']) ? sanitize_text_field($params['client_name']) : ($client ? $client->display_name : '');
+        $client_email = isset($params['client_email']) ? sanitize_email($params['client_email']) : ($client ? $client->user_email : '');
+        $client_phone = isset($params['client_phone']) ? sanitize_text_field($params['client_phone']) : '';
+
+        if ($client_name === '') {
+            return new WP_Error('missing_client', 'Client name is required', ['status' => 400]);
+        }
+
+        $duration_minutes = absint($params['duration_minutes'] ?? get_post_meta($service_id, 'duration_minutes', true) ?: 60);
+        $price = isset($params['price']) ? (float) $params['price'] : (float) get_post_meta($service_id, 'price', true);
+        $status = !empty($params['status']) ? $this->format_booking_status($params['status']) : 'Confirmed';
+        $payment_status = !empty($params['payment_status']) ? sanitize_text_field($params['payment_status']) : 'Unpaid';
+
+        $booking_id = wp_insert_post([
+            'post_type' => 'salon_booking',
+            'post_title' => sprintf('%s - %s', $salon->post_title, $client_name),
+            'post_status' => 'publish',
+            'post_author' => (int) $salon->post_author,
+        ]);
+
+        if (is_wp_error($booking_id)) {
+            return $booking_id;
+        }
+
+        update_post_meta($booking_id, 'salon_id', (string) $salon->ID);
+        update_post_meta($booking_id, 'client_id', $client_id > 0 ? (string) $client_id : '');
+        update_post_meta($booking_id, 'client_name', $client_name);
+        update_post_meta($booking_id, 'client_email', $client_email);
+        update_post_meta($booking_id, 'client_phone', $client_phone);
+        update_post_meta($booking_id, 'service_id', (string) $service_id);
+        update_post_meta($booking_id, 'appointment_date', $appointment_date);
+        update_post_meta($booking_id, 'start_time', $start_time);
+        update_post_meta($booking_id, 'duration_minutes', $duration_minutes);
+        update_post_meta($booking_id, 'end_time', $this->calculate_end_time($start_time, $duration_minutes));
+        update_post_meta($booking_id, 'status', $status);
+        update_post_meta($booking_id, 'booking_source', !empty($params['booking_source']) ? sanitize_text_field($params['booking_source']) : 'App');
+        update_post_meta($booking_id, 'booking_type', !empty($params['booking_type']) ? sanitize_text_field($params['booking_type']) : 'online');
+        update_post_meta($booking_id, 'price', $price);
+        update_post_meta($booking_id, 'payment_status', $payment_status);
+        update_post_meta($booking_id, 'notes', isset($params['notes']) ? sanitize_textarea_field($params['notes']) : '');
+
+        return [
+            'success' => true,
+            'appointment' => $this->format_appointment(get_post($booking_id)),
+        ];
+    }
+
+    public function update_appointment($request) {
+        $booking_id = (int) $request['id'];
+        $booking = get_post($booking_id);
+        if (!$booking || $booking->post_type !== 'salon_booking') {
+            return new WP_Error('no_booking', 'Appointment not found', ['status' => 404]);
+        }
+
+        $this->assume_service_user_if_token($request);
+        $salon_id = (int) get_post_meta($booking_id, 'salon_id', true);
+        $salon = $salon_id ? get_post($salon_id) : null;
+        $current_user_id = get_current_user_id();
+
+        if (!$this->has_valid_api_token($request) && $salon && $current_user_id !== (int) $salon->post_author && !current_user_can('edit_post', $salon_id)) {
+            return new WP_Error('forbidden', 'You are not allowed to update this appointment', ['status' => 403]);
+        }
+
+        $params = $request->get_json_params();
+
+        if (array_key_exists('status', $params)) {
+            update_post_meta($booking_id, 'status', $this->format_booking_status($params['status']));
+        }
+        if (array_key_exists('payment_status', $params)) {
+            update_post_meta($booking_id, 'payment_status', sanitize_text_field($params['payment_status']));
+        }
+        if (array_key_exists('notes', $params)) {
+            update_post_meta($booking_id, 'notes', sanitize_textarea_field($params['notes']));
+        }
+        if (array_key_exists('appointment_date', $params)) {
+            update_post_meta($booking_id, 'appointment_date', sanitize_text_field($params['appointment_date']));
+        }
+        if (array_key_exists('start_time', $params)) {
+            $start_time = sanitize_text_field($params['start_time']);
+            update_post_meta($booking_id, 'start_time', $start_time);
+            $duration_minutes = absint(get_post_meta($booking_id, 'duration_minutes', true) ?: 60);
+            update_post_meta($booking_id, 'end_time', $this->calculate_end_time($start_time, $duration_minutes));
+        }
+
+        return [
+            'success' => true,
+            'appointment' => $this->format_appointment(get_post($booking_id)),
+        ];
+    }
+
+    public function get_user_appointments($request) {
+        $requested_user_id = (int) $request['id'];
+        if ($requested_user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        $this->assume_service_user_if_token($request);
+        $current_user_id = get_current_user_id();
+        if (!$this->has_valid_api_token($request) && $current_user_id !== $requested_user_id && !current_user_can('list_users')) {
+            return new WP_Error('forbidden', 'You are not allowed to view these appointments', ['status' => 403]);
+        }
+
+        $bookings = get_posts([
+            'post_type' => 'salon_booking',
+            'post_status' => 'publish',
+            'posts_per_page' => 100,
+            'meta_key' => 'client_id',
+            'meta_value' => (string) $requested_user_id,
+            'orderby' => 'date',
+            'order' => 'DESC',
+        ]);
+
+        $response = [];
+        foreach ($bookings as $booking) {
+            $item = $this->format_appointment($booking);
+            $salon_id = (int) $item['salon_id'];
+            $salon = $salon_id ? get_post($salon_id) : null;
+            $item['salon_name'] = $salon ? $salon->post_title : '';
+            $item['salon_image'] = $salon ? (get_the_post_thumbnail_url($salon_id, 'medium') ?: (get_post_meta($salon_id, 'cover_url', true) ?: '')) : '';
+            $item['review_submitted'] = get_post_meta($booking->ID, 'review_submitted', true) === '1';
+            $response[] = $item;
+        }
+
+        return $response;
     }
 
     /**
