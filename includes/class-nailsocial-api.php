@@ -966,6 +966,7 @@ class NailSocial_API {
             $categories = get_the_category($blog->ID);
             $response[] = [
                 'id' => (string)$blog->ID,
+                'slug' => $blog->post_name,
                 'title' => $blog->post_title,
                 'excerpt' => $blog->post_excerpt ?: wp_trim_words($blog->post_content, 20),
                 'image' => get_the_post_thumbnail_url($blog->ID, 'large') ?: '',
@@ -1899,14 +1900,16 @@ class NailSocial_API {
         }
 
         $categories = get_the_category($blog->ID);
+        $rendered_content = apply_filters('the_content', $blog->post_content);
         return [
             'id' => (string)$blog->ID,
+            'slug' => $blog->post_name,
             'title' => $blog->post_title,
             'excerpt' => $blog->post_excerpt ?: wp_trim_words($blog->post_content, 20),
             'image' => get_the_post_thumbnail_url($blog->ID, 'large') ?: '',
             'author' => get_the_author_meta('display_name', $blog->post_author),
             'date' => get_the_date('M d, Y', $blog->ID),
-            'content' => $blog->post_content,
+            'content' => $rendered_content,
             'category' => !empty($categories) ? $categories[0]->name : 'Lifestyle',
         ];
     }
