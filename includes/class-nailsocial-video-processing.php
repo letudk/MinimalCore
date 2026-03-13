@@ -52,8 +52,8 @@ class NailSocial_Video_Processing {
         $ffmpeg = $this->find_binary((string) get_option('nailsocial_ffmpeg_path', 'ffmpeg'), 'ffmpeg');
         $ffprobe = $this->find_binary((string) get_option('nailsocial_ffprobe_path', 'ffprobe'), 'ffprobe');
         if ($ffmpeg === '' || $ffprobe === '') {
-            update_post_meta($video_id, 'video_status', 'failed');
-            update_post_meta($video_id, 'video_error', 'ffmpeg/ffprobe not configured on server');
+            update_post_meta($video_id, 'video_status', 'ready');
+            update_post_meta($video_id, 'video_error', 'ffmpeg/ffprobe not configured on server; thumbnail generation skipped');
             return;
         }
 
@@ -77,8 +77,11 @@ class NailSocial_Video_Processing {
 
         $thumbnail_output = shell_exec($thumbnail_command);
         if (!file_exists($thumbnail_path)) {
-            update_post_meta($video_id, 'video_status', 'failed');
-            update_post_meta($video_id, 'video_error', 'Thumbnail generation failed: ' . wp_strip_all_tags((string) $thumbnail_output));
+            update_post_meta($video_id, 'video_status', 'ready');
+            update_post_meta($video_id, 'video_error', 'Thumbnail generation failed; playback is still available. ' . wp_strip_all_tags((string) $thumbnail_output));
+            update_post_meta($video_id, 'duration_seconds', $metadata['duration_seconds']);
+            update_post_meta($video_id, 'video_width', $metadata['width']);
+            update_post_meta($video_id, 'video_height', $metadata['height']);
             $this->cleanup_temp_dir($tmp_dir);
             return;
         }
@@ -93,8 +96,11 @@ class NailSocial_Video_Processing {
         $storage = NailSocial_Storage::get_instance();
         $uploaded = $storage->put_object_from_file($thumbnail_storage_key, $thumbnail_path, 'image/jpeg');
         if (is_wp_error($uploaded)) {
-            update_post_meta($video_id, 'video_status', 'failed');
-            update_post_meta($video_id, 'video_error', $uploaded->get_error_message());
+            update_post_meta($video_id, 'video_status', 'ready');
+            update_post_meta($video_id, 'video_error', 'Thumbnail upload failed; playback is still available. ' . $uploaded->get_error_message());
+            update_post_meta($video_id, 'duration_seconds', $metadata['duration_seconds']);
+            update_post_meta($video_id, 'video_width', $metadata['width']);
+            update_post_meta($video_id, 'video_height', $metadata['height']);
             $this->cleanup_temp_dir($tmp_dir);
             return;
         }

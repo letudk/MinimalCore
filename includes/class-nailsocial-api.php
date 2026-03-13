@@ -901,7 +901,26 @@ class NailSocial_API {
             'meta_query' => [],
         ];
 
-        if ($status !== 'all') {
+        if ($status === 'ready') {
+            $args['meta_query'][] = [
+                'relation' => 'OR',
+                [
+                    'key' => 'video_status',
+                    'value' => 'ready',
+                    'compare' => '=',
+                ],
+                [
+                    'key' => 'playback_url',
+                    'value' => '',
+                    'compare' => '!=',
+                ],
+                [
+                    'key' => 'video_url',
+                    'value' => '',
+                    'compare' => '!=',
+                ],
+            ];
+        } elseif ($status !== 'all') {
             $args['meta_query'][] = [
                 'key' => 'video_status',
                 'value' => $status,
@@ -1013,6 +1032,11 @@ class NailSocial_API {
         update_post_meta($video_id, 'video_height', $height);
         update_post_meta($video_id, 'video_status', 'processing');
         update_post_meta($video_id, 'video_error', '');
+
+        wp_update_post([
+            'ID' => $video_id,
+            'post_status' => 'publish',
+        ]);
 
         NailSocial_Video_Processing::get_instance()->enqueue($video_id);
 
