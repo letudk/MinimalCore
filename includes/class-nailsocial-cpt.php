@@ -40,6 +40,9 @@ class NailSocial_CPT {
         add_meta_box('reel_details', 'Reel Details', [$this, 'render_reel_meta_box'], 'reel', 'normal', 'high');
         add_meta_box('collection_details', 'Collection Details', [$this, 'render_collection_meta_box'], 'collection', 'normal', 'high');
         add_meta_box('plan_details', 'Plan Details', [$this, 'render_plan_meta_box'], 'subscription_plan', 'normal', 'high');
+        add_meta_box('salon_service_details', 'Salon Service Details', [$this, 'render_salon_service_meta_box'], 'salon_service', 'normal', 'high');
+        add_meta_box('salon_booking_details', 'Salon Booking Details', [$this, 'render_salon_booking_meta_box'], 'salon_booking', 'normal', 'high');
+        add_meta_box('salon_review_details', 'Salon Review Details', [$this, 'render_salon_review_meta_box'], 'salon_review', 'normal', 'high');
     }
 
     public function render_nail_art_meta_box($post) {
@@ -117,6 +120,92 @@ class NailSocial_CPT {
         <?php
     }
 
+    public function render_salon_service_meta_box($post) {
+        wp_nonce_field('nailsocial_save_meta', 'nailsocial_meta_nonce');
+        $salon_id = get_post_meta($post->ID, 'salon_id', true);
+        $price = get_post_meta($post->ID, 'price', true);
+        $duration_minutes = get_post_meta($post->ID, 'duration_minutes', true);
+        $category = get_post_meta($post->ID, 'category', true);
+        $description = get_post_meta($post->ID, 'description', true);
+        $status = get_post_meta($post->ID, 'status', true) ?: 'active';
+        ?>
+        <p><label>Salon ID:</label><br><input type="text" name="service_salon_id" value="<?php echo esc_attr($salon_id); ?>" class="regular-text"></p>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Price:</label><br><input type="number" step="0.01" name="service_price" value="<?php echo esc_attr($price); ?>"></p>
+            <p><label>Duration (minutes):</label><br><input type="number" min="1" name="service_duration_minutes" value="<?php echo esc_attr($duration_minutes ?: 60); ?>"></p>
+        </div>
+        <p><label>Category:</label><br><input type="text" name="service_category" value="<?php echo esc_attr($category); ?>" class="regular-text"></p>
+        <p><label>Description:</label><br><textarea name="service_description" rows="4" class="large-text"><?php echo esc_textarea($description); ?></textarea></p>
+        <p>
+            <label>Status:</label><br>
+            <select name="service_status">
+                <option value="active" <?php selected($status, 'active'); ?>>Active</option>
+                <option value="inactive" <?php selected($status, 'inactive'); ?>>Inactive</option>
+            </select>
+        </p>
+        <?php
+    }
+
+    public function render_salon_booking_meta_box($post) {
+        wp_nonce_field('nailsocial_save_meta', 'nailsocial_meta_nonce');
+        $salon_id = get_post_meta($post->ID, 'salon_id', true);
+        $client_name = get_post_meta($post->ID, 'client_name', true);
+        $client_email = get_post_meta($post->ID, 'client_email', true);
+        $client_phone = get_post_meta($post->ID, 'client_phone', true);
+        $service_id = get_post_meta($post->ID, 'service_id', true);
+        $appointment_date = get_post_meta($post->ID, 'appointment_date', true);
+        $start_time = get_post_meta($post->ID, 'start_time', true);
+        $end_time = get_post_meta($post->ID, 'end_time', true);
+        $duration_minutes = get_post_meta($post->ID, 'duration_minutes', true);
+        $status = get_post_meta($post->ID, 'status', true) ?: 'Pending';
+        $payment_status = get_post_meta($post->ID, 'payment_status', true) ?: 'Unpaid';
+        $notes = get_post_meta($post->ID, 'notes', true);
+        ?>
+        <p><label>Salon ID:</label><br><input type="text" name="booking_salon_id" value="<?php echo esc_attr($salon_id); ?>" class="regular-text"></p>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Client Name:</label><br><input type="text" name="booking_client_name" value="<?php echo esc_attr($client_name); ?>" class="regular-text"></p>
+            <p><label>Client Email:</label><br><input type="email" name="booking_client_email" value="<?php echo esc_attr($client_email); ?>" class="regular-text"></p>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Client Phone:</label><br><input type="text" name="booking_client_phone" value="<?php echo esc_attr($client_phone); ?>" class="regular-text"></p>
+            <p><label>Service ID:</label><br><input type="text" name="booking_service_id" value="<?php echo esc_attr($service_id); ?>" class="regular-text"></p>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Date:</label><br><input type="date" name="booking_date" value="<?php echo esc_attr($appointment_date); ?>"></p>
+            <p><label>Start Time:</label><br><input type="time" name="booking_start_time" value="<?php echo esc_attr($start_time); ?>"></p>
+            <p><label>End Time:</label><br><input type="time" name="booking_end_time" value="<?php echo esc_attr($end_time); ?>"></p>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Duration (minutes):</label><br><input type="number" min="1" name="booking_duration_minutes" value="<?php echo esc_attr($duration_minutes ?: 60); ?>"></p>
+            <p><label>Status:</label><br><input type="text" name="booking_status" value="<?php echo esc_attr($status); ?>"></p>
+            <p><label>Payment Status:</label><br><input type="text" name="booking_payment_status" value="<?php echo esc_attr($payment_status); ?>"></p>
+        </div>
+        <p><label>Notes:</label><br><textarea name="booking_notes" rows="4" class="large-text"><?php echo esc_textarea($notes); ?></textarea></p>
+        <?php
+    }
+
+    public function render_salon_review_meta_box($post) {
+        wp_nonce_field('nailsocial_save_meta', 'nailsocial_meta_nonce');
+        $salon_id = get_post_meta($post->ID, 'salon_id', true);
+        $appointment_id = get_post_meta($post->ID, 'appointment_id', true);
+        $user_id = get_post_meta($post->ID, 'user_id', true);
+        $rating = get_post_meta($post->ID, 'rating', true);
+        $status = get_post_meta($post->ID, 'status', true) ?: 'published';
+        $photos = get_post_meta($post->ID, 'photos', true);
+        ?>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Salon ID:</label><br><input type="text" name="review_salon_id" value="<?php echo esc_attr($salon_id); ?>" class="regular-text"></p>
+            <p><label>Appointment ID:</label><br><input type="text" name="review_appointment_id" value="<?php echo esc_attr($appointment_id); ?>" class="regular-text"></p>
+            <p><label>User ID:</label><br><input type="text" name="review_user_id" value="<?php echo esc_attr($user_id); ?>" class="regular-text"></p>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Rating:</label><br><input type="number" min="1" max="5" step="0.1" name="review_rating" value="<?php echo esc_attr($rating ?: 5); ?>"></p>
+            <p><label>Status:</label><br><input type="text" name="review_status" value="<?php echo esc_attr($status); ?>" class="regular-text"></p>
+        </div>
+        <p><label>Photos (JSON array of URLs):</label><br><textarea name="review_photos" rows="3" class="large-text"><?php echo esc_textarea(is_array($photos) ? wp_json_encode($photos) : $photos); ?></textarea></p>
+        <?php
+    }
+
     public function save_custom_meta_boxes($post_id) {
         if (!isset($_POST['nailsocial_meta_nonce']) || !wp_verify_nonce($_POST['nailsocial_meta_nonce'], 'nailsocial_save_meta')) return;
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
@@ -152,6 +241,43 @@ class NailSocial_CPT {
         // Plan Specific
         if (isset($_POST['plan_price'])) update_post_meta($post_id, 'price', sanitize_text_field($_POST['plan_price']));
         if (isset($_POST['plan_paypal_id'])) update_post_meta($post_id, 'paypal_plan_id', sanitize_text_field($_POST['plan_paypal_id']));
+
+        // Salon Service Specific
+        if (isset($_POST['service_salon_id'])) update_post_meta($post_id, 'salon_id', sanitize_text_field($_POST['service_salon_id']));
+        if (isset($_POST['service_price'])) update_post_meta($post_id, 'price', sanitize_text_field($_POST['service_price']));
+        if (isset($_POST['service_duration_minutes'])) update_post_meta($post_id, 'duration_minutes', sanitize_text_field($_POST['service_duration_minutes']));
+        if (isset($_POST['service_category'])) update_post_meta($post_id, 'category', sanitize_text_field($_POST['service_category']));
+        if (isset($_POST['service_description'])) update_post_meta($post_id, 'description', sanitize_textarea_field($_POST['service_description']));
+        if (isset($_POST['service_status'])) update_post_meta($post_id, 'status', sanitize_text_field($_POST['service_status']));
+
+        // Salon Booking Specific
+        if (isset($_POST['booking_salon_id'])) update_post_meta($post_id, 'salon_id', sanitize_text_field($_POST['booking_salon_id']));
+        if (isset($_POST['booking_client_name'])) update_post_meta($post_id, 'client_name', sanitize_text_field($_POST['booking_client_name']));
+        if (isset($_POST['booking_client_email'])) update_post_meta($post_id, 'client_email', sanitize_email($_POST['booking_client_email']));
+        if (isset($_POST['booking_client_phone'])) update_post_meta($post_id, 'client_phone', sanitize_text_field($_POST['booking_client_phone']));
+        if (isset($_POST['booking_service_id'])) update_post_meta($post_id, 'service_id', sanitize_text_field($_POST['booking_service_id']));
+        if (isset($_POST['booking_date'])) update_post_meta($post_id, 'appointment_date', sanitize_text_field($_POST['booking_date']));
+        if (isset($_POST['booking_start_time'])) update_post_meta($post_id, 'start_time', sanitize_text_field($_POST['booking_start_time']));
+        if (isset($_POST['booking_end_time'])) update_post_meta($post_id, 'end_time', sanitize_text_field($_POST['booking_end_time']));
+        if (isset($_POST['booking_duration_minutes'])) update_post_meta($post_id, 'duration_minutes', sanitize_text_field($_POST['booking_duration_minutes']));
+        if (isset($_POST['booking_status'])) update_post_meta($post_id, 'status', sanitize_text_field($_POST['booking_status']));
+        if (isset($_POST['booking_payment_status'])) update_post_meta($post_id, 'payment_status', sanitize_text_field($_POST['booking_payment_status']));
+        if (isset($_POST['booking_notes'])) update_post_meta($post_id, 'notes', sanitize_textarea_field($_POST['booking_notes']));
+
+        // Salon Review Specific
+        if (isset($_POST['review_salon_id'])) update_post_meta($post_id, 'salon_id', sanitize_text_field($_POST['review_salon_id']));
+        if (isset($_POST['review_appointment_id'])) update_post_meta($post_id, 'appointment_id', sanitize_text_field($_POST['review_appointment_id']));
+        if (isset($_POST['review_user_id'])) update_post_meta($post_id, 'user_id', sanitize_text_field($_POST['review_user_id']));
+        if (isset($_POST['review_rating'])) update_post_meta($post_id, 'rating', sanitize_text_field($_POST['review_rating']));
+        if (isset($_POST['review_status'])) update_post_meta($post_id, 'status', sanitize_text_field($_POST['review_status']));
+        if (isset($_POST['review_photos'])) {
+            $photos = trim((string) $_POST['review_photos']);
+            if ($photos !== '' && strpos($photos, '[') === 0) {
+                update_post_meta($post_id, 'photos', json_decode(stripslashes($photos), true));
+            } else {
+                update_post_meta($post_id, 'photos', array_filter(array_map('trim', explode(',', $photos))));
+            }
+        }
     }
 
     public function register_meta_fields() {
@@ -168,6 +294,39 @@ class NailSocial_CPT {
         register_post_meta('subscription_plan', 'price', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_post_meta('subscription_plan', 'paypal_plan_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
 
+        // Salon Service Meta
+        register_post_meta('salon_service', 'salon_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_service', 'price', ['type' => 'number', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_service', 'duration_minutes', ['type' => 'integer', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_service', 'category', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_service', 'description', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_service', 'status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+
+        // Salon Booking Meta
+        register_post_meta('salon_booking', 'salon_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'client_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'client_name', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'client_email', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'client_phone', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'service_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'appointment_date', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'start_time', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'end_time', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'duration_minutes', ['type' => 'integer', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'payment_status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'notes', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'review_submitted', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_booking', 'review_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+
+        // Salon Review Meta
+        register_post_meta('salon_review', 'salon_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'appointment_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'user_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'rating', ['type' => 'number', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'photos', ['type' => 'array', 'single' => true, 'show_in_rest' => true]);
+
         // User Meta
         register_meta('user', 'handle', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_meta('user', 'bio', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
@@ -176,6 +335,8 @@ class NailSocial_CPT {
         register_meta('user', 'tiktok', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_meta('user', 'avatar_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_meta('user', 'subscription_level', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_meta('user', 'notification_preferences', ['type' => 'object', 'single' => true, 'show_in_rest' => true]);
+        register_meta('user', 'saved_items', ['type' => 'array', 'single' => true, 'show_in_rest' => true]);
     }
 
     public function add_custom_user_fields($user) {
@@ -260,6 +421,16 @@ class NailSocial_CPT {
             'show_in_menu' => 'nailsocial-core-settings',
             'supports' => ['title', 'author', 'custom-fields'],
             'menu_icon' => 'dashicons-calendar-alt',
+        ]);
+
+        register_post_type('salon_review', [
+            'labels' => ['name' => 'Salon Reviews', 'singular_name' => 'Salon Review'],
+            'public' => false,
+            'show_ui' => true,
+            'show_in_rest' => true,
+            'show_in_menu' => 'nailsocial-core-settings',
+            'supports' => ['title', 'editor', 'author', 'custom-fields'],
+            'menu_icon' => 'dashicons-star-filled',
         ]);
 
         // Register Nail Art (Gallery Feed)

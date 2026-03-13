@@ -37,6 +37,13 @@ class NailSocial_API {
             'permission_callback' => '__return_true',
         ]);
 
+        // GET /artists
+        register_rest_route($this->namespace, '/artists', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_artists'],
+            'permission_callback' => '__return_true',
+        ]);
+
         // GET /salons
         register_rest_route($this->namespace, '/salons', [
             'methods' => 'GET',
@@ -139,14 +146,35 @@ class NailSocial_API {
         register_rest_route($this->namespace, '/notifications', [
             'methods' => 'GET',
             'callback' => [$this, 'get_notifications'],
-            'permission_callback' => [$this, 'is_user_logged_in'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /notifications
+        register_rest_route($this->namespace, '/notifications', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_notification_entry'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // POST /notifications/read
         register_rest_route($this->namespace, '/notifications/read', [
             'methods' => 'POST',
             'callback' => [$this, 'mark_notifications_read'],
-            'permission_callback' => [$this, 'is_user_logged_in'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /notifications/preferences
+        register_rest_route($this->namespace, '/notifications/preferences', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_notification_preferences'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /notifications/preferences
+        register_rest_route($this->namespace, '/notifications/preferences', [
+            'methods' => 'POST',
+            'callback' => [$this, 'update_notification_preferences'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // GET /salons/(?P<id_or_slug>[\w-]+)
@@ -198,11 +226,46 @@ class NailSocial_API {
             'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
+        // GET /salons/(?P<id_or_slug>[\w-]+)/reviews
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/reviews', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_salon_reviews'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // POST /reviews
+        register_rest_route($this->namespace, '/reviews', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_review'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
         // GET /users/(?P<id>\d+)/appointments
         register_rest_route($this->namespace, '/users/(?P<id>\d+)/appointments', [
             'methods' => 'GET',
             'callback' => [$this, 'get_user_appointments'],
             'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /users/(?P<id>\d+)/saved
+        register_rest_route($this->namespace, '/users/(?P<id>\d+)/saved', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_saved_items'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /saved
+        register_rest_route($this->namespace, '/saved', [
+            'methods' => 'POST',
+            'callback' => [$this, 'toggle_saved_item'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /salons/(?P<id_or_slug>[\w-]+)/features
+        register_rest_route($this->namespace, '/salons/(?P<id_or_slug>[\w-]+)/features', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_salon_features'],
+            'permission_callback' => '__return_true',
         ]);
 
         // GET /reels/(?P<id>\d+)
@@ -282,6 +345,125 @@ class NailSocial_API {
 
     public function can_manage_content($request) {
         return $this->is_user_logged_in() || $this->has_valid_api_token($request);
+    }
+
+    private function get_requested_user_id($request = null, $fallback = 0) {
+        $current_user_id = get_current_user_id();
+        if ($current_user_id > 0) {
+            return $current_user_id;
+        }
+
+        if (!$this->has_valid_api_token($request)) {
+            return (int) $fallback;
+        }
+
+        $header_user_id = 0;
+        if ($request && method_exists($request, 'get_header')) {
+            $header_user_id = absint($request->get_header('x-nailsocial-user-id'));
+        }
+
+        if (!$header_user_id && isset($_SERVER['HTTP_X_NAILSOCIAL_USER_ID'])) {
+            $header_user_id = absint($_SERVER['HTTP_X_NAILSOCIAL_USER_ID']);
+        }
+
+        return $header_user_id > 0 ? $header_user_id : (int) $fallback;
+    }
+
+    private function to_bool_string($value) {
+        return !empty($value) ? '1' : '0';
+    }
+
+    private function get_saved_items_meta($user_id) {
+        $items = get_user_meta($user_id, 'saved_items', true);
+        return is_array($items) ? array_values($items) : [];
+    }
+
+    private function save_saved_items_meta($user_id, $items) {
+        update_user_meta($user_id, 'saved_items', array_values($items));
+    }
+
+    private function get_notification_preferences_defaults() {
+        return [
+            'booking_notifications' => true,
+            'like_notifications' => true,
+            'comment_notifications' => true,
+            'follow_notifications' => true,
+            'email_notifications' => false,
+        ];
+    }
+
+    private function get_notification_preferences_for_user($user_id) {
+        $defaults = $this->get_notification_preferences_defaults();
+        $stored = get_user_meta($user_id, 'notification_preferences', true);
+        if (!is_array($stored)) {
+            return $defaults;
+        }
+
+        return [
+            'booking_notifications' => !empty($stored['booking_notifications']),
+            'like_notifications' => !empty($stored['like_notifications']),
+            'comment_notifications' => !empty($stored['comment_notifications']),
+            'follow_notifications' => !empty($stored['follow_notifications']),
+            'email_notifications' => !empty($stored['email_notifications']),
+        ];
+    }
+
+    private function save_notification_preferences_for_user($user_id, $preferences) {
+        update_user_meta($user_id, 'notification_preferences', [
+            'booking_notifications' => !empty($preferences['booking_notifications']),
+            'like_notifications' => !empty($preferences['like_notifications']),
+            'comment_notifications' => !empty($preferences['comment_notifications']),
+            'follow_notifications' => !empty($preferences['follow_notifications']),
+            'email_notifications' => !empty($preferences['email_notifications']),
+        ]);
+    }
+
+    private function get_plan_features_by_level($level) {
+        $level_key = strtolower(trim((string) $level));
+
+        $feature_sets = [
+            'free' => [
+                'core_dashboard' => true,
+                'booking_management' => true,
+                'client_crm' => true,
+                'service_management' => true,
+                'analytics_basic' => true,
+            ],
+            'pro' => [
+                'core_dashboard' => true,
+                'booking_management' => true,
+                'booking_calendar' => true,
+                'client_crm' => true,
+                'staff_management' => true,
+                'service_management' => true,
+                'analytics_basic' => true,
+                'review_management' => true,
+                'promotion_tools' => true,
+            ],
+            'premium' => [
+                'core_dashboard' => true,
+                'booking_management' => true,
+                'booking_calendar' => true,
+                'client_crm' => true,
+                'staff_management' => true,
+                'service_management' => true,
+                'analytics_basic' => true,
+                'review_management' => true,
+                'promotion_tools' => true,
+                'marketing_tools' => true,
+                'analytics_advanced' => true,
+            ],
+        ];
+
+        if (in_array($level_key, ['elite', 'diamond', 'premium'], true)) {
+            return $feature_sets['premium'];
+        }
+
+        if ($level_key === 'pro') {
+            return $feature_sets['pro'];
+        }
+
+        return $feature_sets['free'];
     }
 
     private function get_service_user_id() {
@@ -513,6 +695,35 @@ class NailSocial_API {
             ['name' => 'Basic profile', 'included' => true],
             ['name' => 'Booking button', 'included' => false],
         ];
+    }
+
+    public function get_artists() {
+        $users = get_users([
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+        ]);
+
+        $artists = [];
+        foreach ($users as $user) {
+            $roles = (array) $user->roles;
+            $is_artist_role = array_intersect($roles, ['artist', 'author', 'editor', 'administrator']);
+            $has_profile_data = get_user_meta($user->ID, 'bio', true) || get_user_meta($user->ID, 'handle', true);
+
+            if (!$is_artist_role && !$has_profile_data) {
+                continue;
+            }
+
+            $artists[] = [
+                'id' => (int) $user->ID,
+                'name' => $user->display_name,
+                'avatar' => get_user_meta($user->ID, 'avatar_url', true) ?: get_avatar_url($user->ID),
+                'handle' => get_user_meta($user->ID, 'handle', true) ?: '@' . $user->user_login,
+                'bio' => get_user_meta($user->ID, 'bio', true) ?: '',
+                'followers_count' => count($this->get_user_ids_meta($user->ID, 'follower_ids')),
+            ];
+        }
+
+        return $artists;
     }
 
     /**
@@ -915,11 +1126,15 @@ class NailSocial_API {
     /**
      * Get user notifications
      */
-    public function get_notifications() {
-        $user_id = get_current_user_id();
+    public function get_notifications($request) {
+        $user_id = $this->get_requested_user_id($request);
+        if ($user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
         $posts = get_posts([
             'post_type' => 'notification',
-            'numberposts' => 20,
+            'numberposts' => 50,
             'meta_key' => 'recipient_id',
             'meta_value' => $user_id,
             'orderby' => 'date',
@@ -927,15 +1142,23 @@ class NailSocial_API {
         ]);
 
         $response = [];
+        $unread_count = 0;
         foreach ($posts as $p) {
             $actor_id = get_post_meta($p->ID, 'actor_id', true);
+            $is_read = get_post_meta($p->ID, 'is_read', true) === '1';
+            if (!$is_read) {
+                $unread_count++;
+            }
             $response[] = [
-                'id' => $p->ID,
+                'id' => (string) $p->ID,
                 'type' => get_post_meta($p->ID, 'notif_type', true),
                 'title' => $p->post_title,
                 'message' => $p->post_content,
-                'time' => get_the_date('c', $p->ID),
-                'isRead' => get_post_meta($p->ID, 'is_read', true) === '1',
+                'created_at' => get_the_date('c', $p->ID),
+                'is_read' => $is_read,
+                'data' => [
+                    'item_id' => get_post_meta($p->ID, 'item_id', true) ?: '',
+                ],
                 'actor' => [
                     'name' => get_the_author_meta('display_name', $actor_id),
                     'avatar' => get_user_meta($actor_id, 'avatar_url', true) ?: get_avatar_url($actor_id),
@@ -943,15 +1166,59 @@ class NailSocial_API {
             ];
         }
 
-        return $response;
+        return [
+            'notifications' => $response,
+            'unreadCount' => $unread_count,
+        ];
+    }
+
+    public function create_notification_entry($request) {
+        $params = $request->get_json_params();
+        $recipient_id = !empty($params['user_id']) ? absint($params['user_id']) : 0;
+        $actor_id = !empty($params['actor_id']) ? absint($params['actor_id']) : 0;
+        $type = isset($params['type']) ? sanitize_text_field($params['type']) : '';
+        $title = isset($params['title']) ? sanitize_text_field($params['title']) : '';
+        $message = isset($params['message']) ? sanitize_textarea_field($params['message']) : '';
+
+        if ($recipient_id <= 0 || $type === '' || $title === '' || $message === '') {
+            return new WP_Error('missing_fields', 'Recipient, type, title, and message are required', ['status' => 400]);
+        }
+
+        $notif_id = wp_insert_post([
+            'post_type' => 'notification',
+            'post_title' => $title,
+            'post_content' => $message,
+            'post_status' => 'publish',
+            'post_author' => $actor_id > 0 ? $actor_id : $this->get_service_user_id(),
+        ]);
+
+        if (is_wp_error($notif_id)) {
+            return $notif_id;
+        }
+
+        update_post_meta($notif_id, 'recipient_id', $recipient_id);
+        update_post_meta($notif_id, 'actor_id', $actor_id);
+        update_post_meta($notif_id, 'notif_type', $type);
+        update_post_meta($notif_id, 'item_id', isset($params['data']['item_id']) ? sanitize_text_field($params['data']['item_id']) : '');
+        update_post_meta($notif_id, 'is_read', '0');
+
+        return [
+            'success' => true,
+            'id' => (string) $notif_id,
+        ];
     }
 
     /**
      * Mark notifications as read
      */
     public function mark_notifications_read($request) {
-        $user_id = get_current_user_id();
-        $notif_ids = $request['ids']; // Array or single ID
+        $user_id = $this->get_requested_user_id($request);
+        if ($user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        $params = $request->get_json_params();
+        $notif_ids = isset($params['ids']) ? $params['ids'] : ($request['ids'] ?? []);
 
         if (empty($notif_ids)) {
             // Mark all for user
@@ -972,6 +1239,29 @@ class NailSocial_API {
         }
 
         return ['success' => true];
+    }
+
+    public function get_notification_preferences($request) {
+        $user_id = $this->get_requested_user_id($request);
+        if ($user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        return $this->get_notification_preferences_for_user($user_id);
+    }
+
+    public function update_notification_preferences($request) {
+        $params = $request->get_json_params();
+        $user_id = !empty($params['user_id']) ? absint($params['user_id']) : $this->get_requested_user_id($request);
+        if ($user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        $this->save_notification_preferences_for_user($user_id, $params);
+        return [
+            'success' => true,
+            'preferences' => $this->get_notification_preferences_for_user($user_id),
+        ];
     }
 
     /**
@@ -1320,6 +1610,192 @@ class NailSocial_API {
         }
 
         return $response;
+    }
+
+    public function get_saved_items($request) {
+        $requested_user_id = (int) $request['id'];
+        if ($requested_user_id <= 0) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        $acting_user_id = $this->get_requested_user_id($request);
+        if (!$this->has_valid_api_token($request) && $acting_user_id !== $requested_user_id && !current_user_can('list_users')) {
+            return new WP_Error('forbidden', 'You are not allowed to view saved items for this user', ['status' => 403]);
+        }
+
+        return $this->get_saved_items_meta($requested_user_id);
+    }
+
+    public function toggle_saved_item($request) {
+        $params = $request->get_json_params();
+        $user_id = !empty($params['user_id']) ? absint($params['user_id']) : $this->get_requested_user_id($request);
+        $item_id = isset($params['item_id']) ? sanitize_text_field($params['item_id']) : '';
+        $item_type = isset($params['item_type']) ? sanitize_text_field($params['item_type']) : '';
+
+        if ($user_id <= 0 || $item_id === '' || $item_type === '') {
+            return new WP_Error('missing_fields', 'User, item ID, and item type are required', ['status' => 400]);
+        }
+
+        $items = $this->get_saved_items_meta($user_id);
+        $existing_index = null;
+        foreach ($items as $index => $item) {
+            if (($item['item_id'] ?? '') === $item_id && ($item['item_type'] ?? '') === $item_type) {
+                $existing_index = $index;
+                break;
+            }
+        }
+
+        if ($existing_index !== null) {
+            array_splice($items, $existing_index, 1);
+            $this->save_saved_items_meta($user_id, $items);
+            return ['success' => true, 'saved' => false];
+        }
+
+        $items[] = [
+            'id' => uniqid('saved_', true),
+            'item_id' => $item_id,
+            'item_type' => $item_type,
+            'created_at' => current_time('c'),
+        ];
+        $this->save_saved_items_meta($user_id, $items);
+
+        return ['success' => true, 'saved' => true];
+    }
+
+    public function get_salon_features($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $level = get_post_meta($salon->ID, 'level', true) ?: 'Free';
+        $plan_id = strtolower((string) $level);
+        if (in_array($plan_id, ['elite', 'diamond'], true)) {
+            $plan_id = 'premium';
+        }
+
+        return [
+            'plan_id' => $plan_id,
+            'plan_name' => $level,
+            'features' => $this->get_plan_features_by_level($level),
+        ];
+    }
+
+    public function get_salon_reviews($request) {
+        $salon = $this->get_salon_post($request['id_or_slug']);
+        if (!$salon) {
+            return new WP_Error('no_salon', 'Salon not found', ['status' => 404]);
+        }
+
+        $reviews = get_posts([
+            'post_type' => 'salon_review',
+            'post_status' => 'publish',
+            'posts_per_page' => 100,
+            'meta_key' => 'salon_id',
+            'meta_value' => (string) $salon->ID,
+            'orderby' => 'date',
+            'order' => 'DESC',
+        ]);
+
+        return array_map(function ($review) {
+            $reviewer_id = (int) get_post_meta($review->ID, 'user_id', true);
+            return [
+                'id' => (string) $review->ID,
+                'salon_id' => (string) get_post_meta($review->ID, 'salon_id', true),
+                'appointment_id' => (string) get_post_meta($review->ID, 'appointment_id', true),
+                'user_id' => $reviewer_id ? (string) $reviewer_id : '',
+                'rating' => (float) get_post_meta($review->ID, 'rating', true),
+                'comment' => $review->post_content,
+                'photos' => get_post_meta($review->ID, 'photos', true) ?: [],
+                'status' => get_post_meta($review->ID, 'status', true) ?: 'published',
+                'created_at' => get_the_date('c', $review->ID),
+                'user' => [
+                    'name' => $reviewer_id ? get_the_author_meta('display_name', $reviewer_id) : '',
+                    'avatar' => $reviewer_id ? (get_user_meta($reviewer_id, 'avatar_url', true) ?: get_avatar_url($reviewer_id)) : '',
+                ],
+            ];
+        }, $reviews);
+    }
+
+    public function create_review($request) {
+        $params = $request->get_json_params();
+        $appointment_id = !empty($params['appointment_id']) ? absint($params['appointment_id']) : 0;
+        $user_id = !empty($params['user_id']) ? absint($params['user_id']) : $this->get_requested_user_id($request);
+        $rating = isset($params['rating']) ? (float) $params['rating'] : 0;
+        $comment = isset($params['comment']) ? wp_kses_post($params['comment']) : '';
+        $photos = !empty($params['photos']) && is_array($params['photos']) ? array_map('esc_url_raw', $params['photos']) : [];
+
+        if ($appointment_id <= 0 || $user_id <= 0 || $rating <= 0) {
+            return new WP_Error('missing_fields', 'Appointment, user, and rating are required', ['status' => 400]);
+        }
+
+        $appointment = get_post($appointment_id);
+        if (!$appointment || $appointment->post_type !== 'salon_booking') {
+            return new WP_Error('no_booking', 'Appointment not found', ['status' => 404]);
+        }
+
+        $appointment_user_id = (int) get_post_meta($appointment_id, 'client_id', true);
+        if (!$this->has_valid_api_token($request) && $appointment_user_id !== $user_id) {
+            return new WP_Error('forbidden', 'You are not allowed to review this appointment', ['status' => 403]);
+        }
+
+        $status = strtolower((string) get_post_meta($appointment_id, 'status', true));
+        if (!in_array($status, ['completed'], true)) {
+            return new WP_Error('invalid_status', 'Service must be completed before leaving a review', ['status' => 403]);
+        }
+
+        if (get_post_meta($appointment_id, 'review_submitted', true) === '1') {
+            return new WP_Error('already_reviewed', 'A review has already been submitted for this appointment', ['status' => 409]);
+        }
+
+        $salon_id = (int) get_post_meta($appointment_id, 'salon_id', true);
+        if ($salon_id <= 0) {
+            return new WP_Error('invalid_salon', 'Appointment is missing salon information', ['status' => 400]);
+        }
+
+        $review_id = wp_insert_post([
+            'post_type' => 'salon_review',
+            'post_title' => sprintf('Review for booking #%d', $appointment_id),
+            'post_content' => $comment,
+            'post_status' => 'publish',
+            'post_author' => $user_id,
+        ]);
+
+        if (is_wp_error($review_id)) {
+            return $review_id;
+        }
+
+        update_post_meta($review_id, 'salon_id', (string) $salon_id);
+        update_post_meta($review_id, 'appointment_id', (string) $appointment_id);
+        update_post_meta($review_id, 'user_id', (string) $user_id);
+        update_post_meta($review_id, 'rating', $rating);
+        update_post_meta($review_id, 'photos', $photos);
+        update_post_meta($review_id, 'status', 'published');
+
+        update_post_meta($appointment_id, 'review_submitted', '1');
+        update_post_meta($appointment_id, 'review_id', (string) $review_id);
+
+        $review_posts = get_posts([
+            'post_type' => 'salon_review',
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'meta_key' => 'salon_id',
+            'meta_value' => (string) $salon_id,
+        ]);
+
+        $ratings = [];
+        foreach ($review_posts as $review_post) {
+            $ratings[] = (float) get_post_meta($review_post->ID, 'rating', true);
+        }
+        if (!empty($ratings)) {
+            update_post_meta($salon_id, 'rating', round(array_sum($ratings) / count($ratings), 1));
+            update_post_meta($salon_id, 'reviews_count', count($ratings));
+        }
+
+        return [
+            'success' => true,
+            'review_id' => (string) $review_id,
+        ];
     }
 
     /**
