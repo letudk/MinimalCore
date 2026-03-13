@@ -31,7 +31,13 @@ class NailSocial_Core {
 
     private function __construct() {
         $this->includes();
+        $this->register_hooks();
         $this->init_features();
+    }
+
+    public static function activate() {
+        update_option('classic-editor-replace', 'classic');
+        update_option('classic-editor-allow-users', 'disallow');
     }
 
     private function includes() {
@@ -39,6 +45,16 @@ class NailSocial_Core {
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-cpt.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-api.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-paypal.php';
+    }
+
+    private function register_hooks() {
+        add_filter('use_block_editor_for_post_type', [$this, 'disable_block_editor'], 10, 2);
+        add_filter('use_widgets_block_editor', '__return_false');
+        add_filter('gutenberg_use_widgets_block_editor', '__return_false');
+    }
+
+    public function disable_block_editor($use_block_editor, $post_type) {
+        return false;
     }
 
     public function init_features() {
@@ -49,6 +65,8 @@ class NailSocial_Core {
         NailSocial_PayPal::get_instance();
     }
 }
+
+register_activation_hook(__FILE__, ['NailSocial_Core', 'activate']);
 
 // Instantiate
 NailSocial_Core::get_instance();
