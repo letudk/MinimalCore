@@ -242,6 +242,26 @@ class NailSocial_CPT {
             'rewrite' => ['slug' => 'salons'],
         ]);
 
+        register_post_type('salon_service', [
+            'labels' => ['name' => 'Salon Services', 'singular_name' => 'Salon Service'],
+            'public' => false,
+            'show_ui' => true,
+            'show_in_rest' => true,
+            'show_in_menu' => 'nailsocial-core-settings',
+            'supports' => ['title', 'custom-fields'],
+            'menu_icon' => 'dashicons-hammer',
+        ]);
+
+        register_post_type('salon_booking', [
+            'labels' => ['name' => 'Salon Bookings', 'singular_name' => 'Salon Booking'],
+            'public' => false,
+            'show_ui' => true,
+            'show_in_rest' => true,
+            'show_in_menu' => 'nailsocial-core-settings',
+            'supports' => ['title', 'author', 'custom-fields'],
+            'menu_icon' => 'dashicons-calendar-alt',
+        ]);
+
         // Register Nail Art (Gallery Feed)
         register_post_type('nail_art', [
             'labels' => ['name' => 'Nail Arts', 'singular_name' => 'Nail Art'],

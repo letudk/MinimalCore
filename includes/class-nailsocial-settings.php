@@ -55,6 +55,8 @@ class NailSocial_Settings {
     public function register_settings() {
         // General
         register_setting('nailsocial_settings', 'nailsocial_env');
+        register_setting('nailsocial_settings', 'nailsocial_api_token');
+        register_setting('nailsocial_settings', 'nailsocial_service_user_id');
 
         // PayPal
         register_setting('nailsocial_settings', 'nailsocial_paypal_client_id');
@@ -106,6 +108,20 @@ class NailSocial_Settings {
                                     <option value="development" <?php selected(get_option('nailsocial_env'), 'development'); ?>>Development</option>
                                     <option value="production" <?php selected(get_option('nailsocial_env'), 'production'); ?>>Production</option>
                                 </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Shared API Token</th>
+                            <td>
+                                <input type="text" name="nailsocial_api_token" value="<?php echo esc_attr(get_option('nailsocial_api_token')); ?>" class="regular-text">
+                                <p class="description">Use the same value as <code>WP_API_TOKEN</code> in the Next.js app so protected write requests can be authenticated.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Service User ID</th>
+                            <td>
+                                <input type="number" min="1" name="nailsocial_service_user_id" value="<?php echo esc_attr(get_option('nailsocial_service_user_id')); ?>" class="small-text">
+                                <p class="description">Optional. Admin user ID used for token-based create/update requests when no logged-in WP user is present.</p>
                             </td>
                         </tr>
                     </table>

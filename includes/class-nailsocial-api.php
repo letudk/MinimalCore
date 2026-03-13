@@ -69,7 +69,7 @@ class NailSocial_API {
         register_rest_route($this->namespace, '/collections', [
             'methods' => 'POST',
             'callback' => [$this, 'create_collection'],
-            'permission_callback' => [$this, 'is_user_logged_in'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // GET /posts
@@ -77,6 +77,13 @@ class NailSocial_API {
             'methods' => 'GET',
             'callback' => [$this, 'get_posts_feed'],
             'permission_callback' => '__return_true',
+        ]);
+
+        // POST /posts
+        register_rest_route($this->namespace, '/posts', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_post'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // GET /blogs
@@ -98,6 +105,13 @@ class NailSocial_API {
             'methods' => 'GET',
             'callback' => [$this, 'get_user_profile'],
             'permission_callback' => '__return_true',
+        ]);
+
+        // POST /users/(?P<id>\d+)
+        register_rest_route($this->namespace, '/users/(?P<id>\d+)', [
+            'methods' => 'POST',
+            'callback' => [$this, 'update_user_profile'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // POST /social-auth
@@ -140,6 +154,13 @@ class NailSocial_API {
             'methods' => 'GET',
             'callback' => [$this, 'get_salon'],
             'permission_callback' => '__return_true',
+        ]);
+
+        // POST /salons
+        register_rest_route($this->namespace, '/salons', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_salon'],
+            'permission_callback' => [$this, 'can_manage_content'],
         ]);
 
         // GET /reels/(?P<id>\d+)
@@ -190,6 +211,78 @@ class NailSocial_API {
 
     public function is_user_logged_in() {
         return get_current_user_id() !== 0;
+    }
+
+    private function has_valid_api_token($request = null) {
+        $configured = (string) get_option('nailsocial_api_token', '');
+        if ($configured === '') return false;
+
+        $header = '';
+        if ($request && method_exists($request, 'get_header')) {
+            $header = (string) $request->get_header('authorization');
+            if (!$header) {
+                $header = (string) $request->get_header('x-nailsocial-token');
+            }
+        }
+
+        if (!$header && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $header = (string) $_SERVER['HTTP_AUTHORIZATION'];
+        }
+        if (!$header && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+            $header = (string) $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+        }
+
+        if (!$header) return false;
+
+        $token = stripos($header, 'Bearer ') === 0 ? substr($header, 7) : $header;
+        return hash_equals($configured, trim($token));
+    }
+
+    public function can_manage_content($request) {
+        return $this->is_user_logged_in() || $this->has_valid_api_token($request);
+    }
+
+    private function get_service_user_id() {
+        $configured = (int) get_option('nailsocial_service_user_id', 0);
+        if ($configured > 0) return $configured;
+
+        $admins = get_users([
+            'role' => 'administrator',
+            'number' => 1,
+            'fields' => 'ID',
+        ]);
+
+        if (!empty($admins)) {
+            return (int) $admins[0];
+        }
+
+        return 1;
+    }
+
+    private function assume_service_user_if_token($request) {
+        if (get_current_user_id() !== 0) return get_current_user_id();
+        if (!$this->has_valid_api_token($request)) return 0;
+
+        $service_user_id = $this->get_service_user_id();
+        if ($service_user_id > 0) {
+            wp_set_current_user($service_user_id);
+        }
+
+        return get_current_user_id();
+    }
+
+    private function resolve_author_id($requested_author_id, $default_author_id) {
+        $requested_author_id = (int) $requested_author_id;
+        if ($requested_author_id > 0 && get_user_by('id', $requested_author_id)) {
+            return $requested_author_id;
+        }
+
+        $default_author_id = (int) $default_author_id;
+        if ($default_author_id > 0) {
+            return $default_author_id;
+        }
+
+        return $this->get_service_user_id();
     }
 
     /**
@@ -263,16 +356,25 @@ class NailSocial_API {
 
         foreach ($salons as $salon) {
             $image = get_the_post_thumbnail_url($salon->ID, 'large');
+            $owner_id = (int) $salon->post_author;
             $response[] = [
                 'id' => (string)$salon->ID,
                 'slug' => $salon->post_name,
                 'name' => $salon->post_title,
+                'owner_id' => (string) $owner_id,
+                'owner' => get_the_author_meta('display_name', $owner_id),
                 'level' => get_post_meta($salon->ID, 'level', true) ?: 'Free',
                 'address' => get_post_meta($salon->ID, 'address', true),
+                'city' => get_post_meta($salon->ID, 'city', true),
+                'country' => get_post_meta($salon->ID, 'country', true),
                 'rating' => (float)get_post_meta($salon->ID, 'rating', true) ?: 0,
                 'reviews' => (int)get_post_meta($salon->ID, 'reviews_count', true) ?: 0,
-                'image' => $image ?: '',
-                'category' => 'General', // Would fetch from taxonomy
+                'image' => $image ?: (get_post_meta($salon->ID, 'cover_url', true) ?: ''),
+                'logoUrl' => get_post_meta($salon->ID, 'logo_url', true) ?: '',
+                'coverUrl' => get_post_meta($salon->ID, 'cover_url', true) ?: '',
+                'phone' => get_post_meta($salon->ID, 'phone', true) ?: '',
+                'website' => get_post_meta($salon->ID, 'website', true) ?: '',
+                'category' => get_post_meta($salon->ID, 'category', true) ?: 'General',
                 'description' => $salon->post_content,
             ];
         }
@@ -343,11 +445,15 @@ class NailSocial_API {
             return new WP_Error('missing_title', 'Title is required', ['status' => 400]);
         }
 
+        $requested_author_id = !empty($params['userId']) ? (int) $params['userId'] : 0;
+        $this->assume_service_user_if_token($request);
+        $post_author = $this->resolve_author_id($requested_author_id, get_current_user_id());
+
         $post_id = wp_insert_post([
             'post_type' => 'collection',
             'post_title' => $title,
             'post_status' => 'publish',
-            'post_author' => get_current_user_id(),
+            'post_author' => $post_author,
         ]);
 
         if (is_wp_error($post_id)) {
@@ -362,7 +468,8 @@ class NailSocial_API {
 
         return [
             'success' => true,
-            'id' => (string)$post_id
+            'id' => (string)$post_id,
+            'collection' => $this->get_collection(['id' => $post_id]),
         ];
     }
 
@@ -396,7 +503,7 @@ class NailSocial_API {
             $response[] = [
                 'id' => (string)$post->ID,
                 'type' => $video_url ? 'video' : 'image',
-                'imageUrl' => get_the_post_thumbnail_url($post->ID, 'large') ?: '',
+                'imageUrl' => get_the_post_thumbnail_url($post->ID, 'large') ?: (get_post_meta($post->ID, 'image_url', true) ?: ''),
                 'videoUrl' => $video_url,
                 'caption' => $post->post_content,
                 'likes' => (int)get_post_meta($post->ID, 'likes_count', true) ?: 0,
@@ -412,6 +519,44 @@ class NailSocial_API {
         }
 
         return $response;
+    }
+
+    public function create_post($request) {
+        $params = $request->get_json_params();
+        $caption = isset($params['caption']) ? wp_kses_post($params['caption']) : '';
+        $image_url = isset($params['imageUrl']) ? esc_url_raw($params['imageUrl']) : '';
+        $video_url = isset($params['videoUrl']) ? esc_url_raw($params['videoUrl']) : '';
+        $location = isset($params['location']) ? sanitize_text_field($params['location']) : '';
+
+        if (!$image_url && !$video_url) {
+            return new WP_Error('missing_media', 'An image or video URL is required', ['status' => 400]);
+        }
+
+        $requested_author_id = !empty($params['userId']) ? (int) $params['userId'] : 0;
+        $this->assume_service_user_if_token($request);
+        $author_id = $this->resolve_author_id($requested_author_id, get_current_user_id());
+
+        $post_id = wp_insert_post([
+            'post_type' => 'nail_art',
+            'post_title' => wp_trim_words(wp_strip_all_tags($caption ?: 'NailSocial Post'), 8, ''),
+            'post_content' => $caption,
+            'post_status' => 'publish',
+            'post_author' => $author_id,
+        ]);
+
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+
+        if ($image_url) update_post_meta($post_id, 'image_url', $image_url);
+        if ($video_url) update_post_meta($post_id, 'video_url', $video_url);
+        if ($location) update_post_meta($post_id, 'location', $location);
+
+        return [
+            'success' => true,
+            'id' => (string) $post_id,
+            'post' => $this->get_post(['id' => $post_id]),
+        ];
     }
 
     /**
@@ -472,6 +617,7 @@ class NailSocial_API {
             'email' => $user->user_email,
             'handle' => get_user_meta($user->ID, 'handle', true) ?: '@' . $user->user_login,
             'avatar' => get_user_meta($user->ID, 'avatar_url', true) ?: get_avatar_url($user->ID),
+            'image' => get_user_meta($user->ID, 'avatar_url', true) ?: get_avatar_url($user->ID),
             'bio' => get_user_meta($user->ID, 'bio', true),
             'location' => get_user_meta($user->ID, 'location', true),
             'instagram' => get_user_meta($user->ID, 'instagram', true),
@@ -482,6 +628,45 @@ class NailSocial_API {
             'following_count' => count($this->get_user_ids_meta($user->ID, 'following_ids')),
             'is_following' => in_array(get_current_user_id(), $this->get_user_ids_meta($user->ID, 'follower_ids')),
         ];
+    }
+
+    public function update_user_profile($request) {
+        $user_id = (int) $request['id'];
+        $params = $request->get_json_params();
+
+        if (!$user_id) {
+            return new WP_Error('invalid_user', 'User ID is required', ['status' => 400]);
+        }
+
+        $this->assume_service_user_if_token($request);
+        $current_user_id = get_current_user_id();
+        if (!$this->has_valid_api_token($request) && $current_user_id !== $user_id && !current_user_can('edit_users')) {
+            return new WP_Error('forbidden', 'You are not allowed to edit this user', ['status' => 403]);
+        }
+
+        $name = isset($params['name']) ? sanitize_text_field($params['name']) : '';
+        if ($name === '') {
+            return new WP_Error('missing_name', 'Name is required', ['status' => 400]);
+        }
+
+        $result = wp_update_user([
+            'ID' => $user_id,
+            'display_name' => $name,
+        ]);
+
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        if (array_key_exists('avatar', $params)) update_user_meta($user_id, 'avatar_url', esc_url_raw($params['avatar']));
+        if (array_key_exists('bio', $params)) update_user_meta($user_id, 'bio', sanitize_textarea_field($params['bio']));
+        if (array_key_exists('location', $params)) update_user_meta($user_id, 'location', sanitize_text_field($params['location']));
+        if (array_key_exists('instagram', $params)) update_user_meta($user_id, 'instagram', sanitize_text_field($params['instagram']));
+        if (array_key_exists('tiktok', $params)) update_user_meta($user_id, 'tiktok', sanitize_text_field($params['tiktok']));
+
+        $response = new WP_REST_Request('GET', sprintf('/%s/users/%d', $this->namespace, $user_id));
+        $response->set_param('id_or_slug', (string) $user_id);
+        return $this->get_user_profile($response);
     }
 
     private function get_user_ids_meta($user_id, $key) {
@@ -665,17 +850,87 @@ class NailSocial_API {
         }
 
         $image = get_the_post_thumbnail_url($salon->ID, 'large');
+        $owner_id = (int) $salon->post_author;
         return [
             'id' => (string)$salon->ID,
             'slug' => $salon->post_name,
             'name' => $salon->post_title,
+            'owner_id' => (string) $owner_id,
+            'owner' => get_the_author_meta('display_name', $owner_id),
             'level' => get_post_meta($salon->ID, 'level', true) ?: 'Free',
             'address' => get_post_meta($salon->ID, 'address', true),
+            'city' => get_post_meta($salon->ID, 'city', true),
+            'country' => get_post_meta($salon->ID, 'country', true),
             'rating' => (float)get_post_meta($salon->ID, 'rating', true) ?: 0,
             'reviews' => (int)get_post_meta($salon->ID, 'reviews_count', true) ?: 0,
-            'image' => $image ?: '',
-            'category' => 'General',
+            'image' => $image ?: (get_post_meta($salon->ID, 'cover_url', true) ?: ''),
+            'logoUrl' => get_post_meta($salon->ID, 'logo_url', true) ?: '',
+            'coverUrl' => get_post_meta($salon->ID, 'cover_url', true) ?: '',
+            'phone' => get_post_meta($salon->ID, 'phone', true) ?: '',
+            'website' => get_post_meta($salon->ID, 'website', true) ?: '',
+            'category' => get_post_meta($salon->ID, 'category', true) ?: 'General',
             'description' => $salon->post_content,
+        ];
+    }
+
+    public function create_salon($request) {
+        $params = $request->get_json_params();
+        $name = isset($params['name']) ? sanitize_text_field($params['name']) : '';
+        if ($name === '') {
+            return new WP_Error('missing_name', 'Salon name is required', ['status' => 400]);
+        }
+
+        $requested_author_id = !empty($params['userId']) ? (int) $params['userId'] : 0;
+        $this->assume_service_user_if_token($request);
+        $author_id = $this->resolve_author_id($requested_author_id, get_current_user_id());
+
+        $post_id = wp_insert_post([
+            'post_type' => 'salon',
+            'post_title' => $name,
+            'post_content' => isset($params['description']) ? wp_kses_post($params['description']) : '',
+            'post_status' => 'publish',
+            'post_author' => $author_id,
+        ]);
+
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+
+        $meta_map = [
+            'address' => 'address',
+            'city' => 'city',
+            'country' => 'country',
+            'category' => 'category',
+            'level' => 'level',
+            'phone' => 'phone',
+            'website' => 'website',
+            'logoUrl' => 'logo_url',
+            'coverUrl' => 'cover_url',
+            'image' => 'cover_url',
+            'latitude' => 'latitude',
+            'longitude' => 'longitude',
+            'openTime' => 'open_time',
+            'closeTime' => 'close_time',
+        ];
+
+        foreach ($meta_map as $input_key => $meta_key) {
+            if (!array_key_exists($input_key, $params)) continue;
+            $value = $params[$input_key];
+            if (in_array($meta_key, ['logo_url', 'cover_url'], true)) {
+                update_post_meta($post_id, $meta_key, esc_url_raw($value));
+            } else {
+                update_post_meta($post_id, $meta_key, sanitize_text_field((string) $value));
+            }
+        }
+
+        update_post_meta($post_id, 'rating', isset($params['rating']) ? (float) $params['rating'] : 0);
+        update_post_meta($post_id, 'reviews_count', isset($params['reviews']) ? (int) $params['reviews'] : 0);
+        update_post_meta($post_id, 'is_open', !empty($params['isOpen']) ? '1' : '0');
+
+        return [
+            'success' => true,
+            'id' => (string) $post_id,
+            'salon' => $this->get_salon(['id_or_slug' => (string) $post_id]),
         ];
     }
 
@@ -723,7 +978,7 @@ class NailSocial_API {
         return [
             'id' => (string)$post->ID,
             'type' => $video_url ? 'video' : 'image',
-            'imageUrl' => get_the_post_thumbnail_url($post->ID, 'large') ?: '',
+            'imageUrl' => get_the_post_thumbnail_url($post->ID, 'large') ?: (get_post_meta($post->ID, 'image_url', true) ?: ''),
             'videoUrl' => $video_url,
             'caption' => $post->post_content,
             'likes' => (int)get_post_meta($post->ID, 'likes_count', true) ?: 0,
