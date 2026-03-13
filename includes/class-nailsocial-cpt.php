@@ -369,7 +369,18 @@ class NailSocial_CPT {
         register_post_meta('salon_review', 'user_id', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_post_meta('salon_review', 'rating', ['type' => 'number', 'single' => true, 'show_in_rest' => true]);
         register_post_meta('salon_review', 'status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
-        register_post_meta('salon_review', 'photos', ['type' => 'array', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('salon_review', 'photos', [
+            'type' => 'array',
+            'single' => true,
+            'show_in_rest' => [
+                'schema' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'string',
+                    ],
+                ],
+            ],
+        ]);
 
         // User Meta
         register_meta('user', 'handle', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
@@ -379,8 +390,34 @@ class NailSocial_CPT {
         register_meta('user', 'tiktok', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_meta('user', 'avatar_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_meta('user', 'subscription_level', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
-        register_meta('user', 'notification_preferences', ['type' => 'object', 'single' => true, 'show_in_rest' => true]);
-        register_meta('user', 'saved_items', ['type' => 'array', 'single' => true, 'show_in_rest' => true]);
+        register_meta('user', 'notification_preferences', [
+            'type' => 'object',
+            'single' => true,
+            'show_in_rest' => [
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'booking_notifications' => ['type' => 'boolean'],
+                        'like_notifications' => ['type' => 'boolean'],
+                        'comment_notifications' => ['type' => 'boolean'],
+                        'follow_notifications' => ['type' => 'boolean'],
+                        'email_notifications' => ['type' => 'boolean'],
+                    ],
+                ],
+            ],
+        ]);
+        register_meta('user', 'saved_items', [
+            'type' => 'array',
+            'single' => true,
+            'show_in_rest' => [
+                'schema' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                    ],
+                ],
+            ],
+        ]);
     }
 
     public function add_custom_user_fields($user) {

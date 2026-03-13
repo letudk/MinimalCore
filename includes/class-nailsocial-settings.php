@@ -121,11 +121,19 @@ class NailSocial_Settings {
             foreach ($tab['options'] as $option_name => $sanitize_callback) {
                 register_setting($tab['group'], $option_name, [
                     'type' => 'string',
-                    'sanitize_callback' => [$this, $sanitize_callback],
+                    'sanitize_callback' => $this->resolve_sanitize_callback($sanitize_callback),
                     'default' => $this->get_default_option_value($option_name),
                 ]);
             }
         }
+    }
+
+    private function resolve_sanitize_callback($sanitize_callback) {
+        if (is_string($sanitize_callback) && method_exists($this, $sanitize_callback)) {
+            return [$this, $sanitize_callback];
+        }
+
+        return $sanitize_callback;
     }
 
     public function sanitize_environment($value) {
