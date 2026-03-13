@@ -845,7 +845,12 @@ class NailSocial_API {
     private function format_reel_response($reel) {
         $author_id = (int) $reel->post_author;
         $image = get_post_meta($reel->ID, 'thumbnail_url', true) ?: get_the_post_thumbnail_url($reel->ID, 'large') ?: '';
-        $playback_url = get_post_meta($reel->ID, 'playback_url', true) ?: get_post_meta($reel->ID, 'video_url', true);
+        $storage_key = get_post_meta($reel->ID, 'storage_key', true) ?: '';
+        $stored_playback_url = get_post_meta($reel->ID, 'playback_url', true) ?: get_post_meta($reel->ID, 'video_url', true);
+        $playback_url = $stored_playback_url;
+        if ($storage_key !== '') {
+            $playback_url = NailSocial_Storage::get_instance()->get_public_url($storage_key);
+        }
         $video_status = get_post_meta($reel->ID, 'video_status', true) ?: ($reel->post_status === 'publish' ? 'ready' : 'draft');
 
         return [
@@ -865,7 +870,7 @@ class NailSocial_API {
             'status' => $video_status,
             'mime_type' => get_post_meta($reel->ID, 'mime_type', true) ?: 'video/mp4',
             'size_bytes' => (int) get_post_meta($reel->ID, 'size_bytes', true),
-            'storage_key' => get_post_meta($reel->ID, 'storage_key', true) ?: '',
+            'storage_key' => $storage_key,
             'duration_seconds' => (float) get_post_meta($reel->ID, 'duration_seconds', true),
             'width' => (int) get_post_meta($reel->ID, 'video_width', true),
             'height' => (int) get_post_meta($reel->ID, 'video_height', true),

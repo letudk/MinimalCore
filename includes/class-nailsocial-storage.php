@@ -52,7 +52,7 @@ class NailSocial_Storage {
     public function get_public_url($storage_key) {
         $settings = $this->get_settings();
         if ($settings['cdn_base_url'] !== '') {
-            return $settings['cdn_base_url'] . '/' . ltrim($storage_key, '/');
+            return $this->build_cdn_url($settings['cdn_base_url'], $storage_key);
         }
 
         return $this->build_object_url($storage_key);
@@ -258,6 +258,18 @@ class NailSocial_Storage {
 
     private function build_request_base_url($storage_key) {
         return $this->build_object_url($storage_key);
+    }
+
+    private function build_cdn_url($base_url, $storage_key) {
+        $normalized_base = rtrim((string) $base_url, '/');
+        $parts = wp_parse_url($normalized_base);
+        $path = isset($parts['path']) ? rtrim((string) $parts['path'], '/') : '';
+
+        if ($path === '') {
+            $normalized_base .= '/api';
+        }
+
+        return $normalized_base . '/' . ltrim($storage_key, '/');
     }
 
     private function build_object_url($storage_key) {
