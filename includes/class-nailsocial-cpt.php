@@ -88,11 +88,35 @@ class NailSocial_CPT {
         wp_nonce_field('nailsocial_save_meta', 'nailsocial_meta_nonce');
         $video_url = get_post_meta($post->ID, 'video_url', true);
         $music = get_post_meta($post->ID, 'music_title', true);
+        $status = get_post_meta($post->ID, 'video_status', true) ?: 'draft';
+        $storage_key = get_post_meta($post->ID, 'storage_key', true);
+        $playback_url = get_post_meta($post->ID, 'playback_url', true);
+        $thumbnail_url = get_post_meta($post->ID, 'thumbnail_url', true);
+        $hls_url = get_post_meta($post->ID, 'hls_url', true);
+        $mime_type = get_post_meta($post->ID, 'mime_type', true);
+        $size_bytes = get_post_meta($post->ID, 'size_bytes', true);
+        $duration_seconds = get_post_meta($post->ID, 'duration_seconds', true);
+        $width = get_post_meta($post->ID, 'video_width', true);
+        $height = get_post_meta($post->ID, 'video_height', true);
         $likes = get_post_meta($post->ID, 'likes_count', true) ?: 0;
         $views = get_post_meta($post->ID, 'views_count', true) ?: 0;
         ?>
         <p><label>Video URL (.mp4):</label><br><input type="text" name="reel_video_url" value="<?php echo esc_attr($video_url); ?>" class="large-text"></p>
+        <p><label>Playback URL:</label><br><input type="text" name="reel_playback_url" value="<?php echo esc_attr($playback_url); ?>" class="large-text"></p>
+        <p><label>Thumbnail URL:</label><br><input type="text" name="reel_thumbnail_url" value="<?php echo esc_attr($thumbnail_url); ?>" class="large-text"></p>
+        <p><label>HLS URL:</label><br><input type="text" name="reel_hls_url" value="<?php echo esc_attr($hls_url); ?>" class="large-text"></p>
+        <p><label>Storage Key:</label><br><input type="text" name="reel_storage_key" value="<?php echo esc_attr($storage_key); ?>" class="large-text"></p>
         <p><label>Music Title:</label><br><input type="text" name="reel_music_title" value="<?php echo esc_attr($music); ?>" class="large-text"></p>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Status:</label><br><input type="text" name="reel_video_status" value="<?php echo esc_attr($status); ?>"></p>
+            <p><label>MIME Type:</label><br><input type="text" name="reel_mime_type" value="<?php echo esc_attr($mime_type); ?>"></p>
+            <p><label>Size (bytes):</label><br><input type="number" min="0" name="reel_size_bytes" value="<?php echo esc_attr($size_bytes); ?>"></p>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <p><label>Duration (seconds):</label><br><input type="number" step="0.01" min="0" name="reel_duration_seconds" value="<?php echo esc_attr($duration_seconds); ?>"></p>
+            <p><label>Width:</label><br><input type="number" min="0" name="reel_width" value="<?php echo esc_attr($width); ?>"></p>
+            <p><label>Height:</label><br><input type="number" min="0" name="reel_height" value="<?php echo esc_attr($height); ?>"></p>
+        </div>
         <div style="display: flex; gap: 20px;">
             <p><label>Likes:</label><br><input type="number" name="ns_likes" value="<?php echo esc_attr($likes); ?>"></p>
             <p><label>Views:</label><br><input type="number" name="ns_views" value="<?php echo esc_attr($views); ?>"></p>
@@ -225,7 +249,17 @@ class NailSocial_CPT {
 
         // Reel Specific
         if (isset($_POST['reel_video_url'])) update_post_meta($post_id, 'video_url', esc_url_raw($_POST['reel_video_url']));
+        if (isset($_POST['reel_playback_url'])) update_post_meta($post_id, 'playback_url', esc_url_raw($_POST['reel_playback_url']));
+        if (isset($_POST['reel_thumbnail_url'])) update_post_meta($post_id, 'thumbnail_url', esc_url_raw($_POST['reel_thumbnail_url']));
+        if (isset($_POST['reel_hls_url'])) update_post_meta($post_id, 'hls_url', esc_url_raw($_POST['reel_hls_url']));
+        if (isset($_POST['reel_storage_key'])) update_post_meta($post_id, 'storage_key', sanitize_text_field($_POST['reel_storage_key']));
         if (isset($_POST['reel_music_title'])) update_post_meta($post_id, 'music_title', sanitize_text_field($_POST['reel_music_title']));
+        if (isset($_POST['reel_video_status'])) update_post_meta($post_id, 'video_status', sanitize_text_field($_POST['reel_video_status']));
+        if (isset($_POST['reel_mime_type'])) update_post_meta($post_id, 'mime_type', sanitize_text_field($_POST['reel_mime_type']));
+        if (isset($_POST['reel_size_bytes'])) update_post_meta($post_id, 'size_bytes', absint($_POST['reel_size_bytes']));
+        if (isset($_POST['reel_duration_seconds'])) update_post_meta($post_id, 'duration_seconds', (float) $_POST['reel_duration_seconds']);
+        if (isset($_POST['reel_width'])) update_post_meta($post_id, 'video_width', absint($_POST['reel_width']));
+        if (isset($_POST['reel_height'])) update_post_meta($post_id, 'video_height', absint($_POST['reel_height']));
 
         // Collection Specific
         if (isset($_POST['col_extra'])) update_post_meta($post_id, 'extra_info', sanitize_text_field($_POST['col_extra']));
@@ -289,6 +323,16 @@ class NailSocial_CPT {
         // Reel Meta
         register_post_meta('reel', 'video_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
         register_post_meta('reel', 'music_title', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'playback_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'thumbnail_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'hls_url', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'storage_key', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'video_status', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'mime_type', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'size_bytes', ['type' => 'integer', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'duration_seconds', ['type' => 'number', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'video_width', ['type' => 'integer', 'single' => true, 'show_in_rest' => true]);
+        register_post_meta('reel', 'video_height', ['type' => 'integer', 'single' => true, 'show_in_rest' => true]);
         
         // Plan Meta
         register_post_meta('subscription_plan', 'price', ['type' => 'string', 'single' => true, 'show_in_rest' => true]);

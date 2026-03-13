@@ -58,6 +58,34 @@ class NailSocial_API {
             'permission_callback' => '__return_true',
         ]);
 
+        // GET /videos
+        register_rest_route($this->namespace, '/videos', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_videos_feed'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // POST /videos/init
+        register_rest_route($this->namespace, '/videos/init', [
+            'methods' => 'POST',
+            'callback' => [$this, 'init_video_upload'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // POST /videos/(?P<id>\d+)/complete
+        register_rest_route($this->namespace, '/videos/(?P<id>\d+)/complete', [
+            'methods' => 'POST',
+            'callback' => [$this, 'complete_video_upload'],
+            'permission_callback' => [$this, 'can_manage_content'],
+        ]);
+
+        // GET /videos/(?P<id>\d+)
+        register_rest_route($this->namespace, '/videos/(?P<id>\d+)', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_video'],
+            'permission_callback' => '__return_true',
+        ]);
+
         // GET /reels/(?P<id>\d+)
         register_rest_route($this->namespace, '/reels/(?P<id>\d+)', [
             'methods' => 'GET',
@@ -809,24 +837,190 @@ class NailSocial_API {
         $response = [];
 
         foreach ($reels as $reel) {
-            $author_id = $reel->post_author;
-            $image = get_the_post_thumbnail_url($reel->ID, 'large');
-            $response[] = [
-                'id' => $reel->ID,
-                'image' => $image ?: '',
-                'videoUrl' => get_post_meta($reel->ID, 'video_url', true),
-                'description' => $reel->post_content,
-                'author' => get_the_author_meta('display_name', $author_id),
-                'music' => get_post_meta($reel->ID, 'music_title', true) ?: 'Original Audio',
-                'views' => get_post_meta($reel->ID, 'views_count', true) ?: '0',
-                'likes' => get_post_meta($reel->ID, 'likes_count', true) ?: '0',
-                'comments' => get_post_meta($reel->ID, 'comments_count', true) ?: '0',
-                'user' => [
-                    'avatar' => get_user_meta($author_id, 'avatar_url', true) ?: get_avatar_url($author_id)
-                ]
-            ];
+            $response[] = $this->format_reel_response($reel);
         }
         return $response;
+    }
+
+    private function format_reel_response($reel) {
+        $author_id = (int) $reel->post_author;
+        $image = get_post_meta($reel->ID, 'thumbnail_url', true) ?: get_the_post_thumbnail_url($reel->ID, 'large') ?: '';
+        $playback_url = get_post_meta($reel->ID, 'playback_url', true) ?: get_post_meta($reel->ID, 'video_url', true);
+        $video_status = get_post_meta($reel->ID, 'video_status', true) ?: ($reel->post_status === 'publish' ? 'ready' : 'draft');
+
+        return [
+            'id' => (int) $reel->ID,
+            'image' => $image,
+            'thumbnail_url' => $image,
+            'videoUrl' => $playback_url,
+            'playback_url' => $playback_url,
+            'hls_url' => get_post_meta($reel->ID, 'hls_url', true) ?: null,
+            'description' => $reel->post_content,
+            'caption' => $reel->post_content,
+            'author' => get_the_author_meta('display_name', $author_id),
+            'music' => get_post_meta($reel->ID, 'music_title', true) ?: 'Original Audio',
+            'views' => (string) (get_post_meta($reel->ID, 'views_count', true) ?: '0'),
+            'likes' => (string) (get_post_meta($reel->ID, 'likes_count', true) ?: '0'),
+            'comments' => (string) (get_post_meta($reel->ID, 'comments_count', true) ?: '0'),
+            'status' => $video_status,
+            'mime_type' => get_post_meta($reel->ID, 'mime_type', true) ?: 'video/mp4',
+            'size_bytes' => (int) get_post_meta($reel->ID, 'size_bytes', true),
+            'storage_key' => get_post_meta($reel->ID, 'storage_key', true) ?: '',
+            'duration_seconds' => (float) get_post_meta($reel->ID, 'duration_seconds', true),
+            'width' => (int) get_post_meta($reel->ID, 'video_width', true),
+            'height' => (int) get_post_meta($reel->ID, 'video_height', true),
+            'created_at' => get_post_time('c', true, $reel),
+            'author_obj' => [
+                'id' => $author_id,
+                'username' => get_the_author_meta('user_login', $author_id),
+                'display_name' => get_the_author_meta('display_name', $author_id),
+                'avatar_url' => get_user_meta($author_id, 'avatar_url', true) ?: get_avatar_url($author_id),
+            ],
+            'counts' => [
+                'likes' => (int) get_post_meta($reel->ID, 'likes_count', true) ?: 0,
+                'comments' => (int) get_post_meta($reel->ID, 'comments_count', true) ?: 0,
+                'shares' => (int) get_post_meta($reel->ID, 'shares_count', true) ?: 0,
+                'views' => (int) get_post_meta($reel->ID, 'views_count', true) ?: 0,
+            ],
+            'user' => [
+                'avatar' => get_user_meta($author_id, 'avatar_url', true) ?: get_avatar_url($author_id)
+            ],
+        ];
+    }
+
+    public function get_videos_feed($request) {
+        $status = sanitize_text_field($request->get_param('status') ?: 'ready');
+        $page = max(1, absint($request->get_param('page') ?: 1));
+        $per_page = max(1, min(50, absint($request->get_param('per_page') ?: 10)));
+
+        $args = [
+            'post_type' => 'reel',
+            'posts_per_page' => $per_page,
+            'paged' => $page,
+            'post_status' => $status === 'ready' ? 'publish' : ['draft', 'publish', 'pending'],
+            'meta_query' => [],
+        ];
+
+        if ($status !== 'all') {
+            $args['meta_query'][] = [
+                'key' => 'video_status',
+                'value' => $status,
+                'compare' => '=',
+            ];
+        }
+
+        $query = new WP_Query($args);
+        $items = [];
+        foreach ($query->posts as $reel) {
+            $items[] = $this->format_reel_response($reel);
+        }
+
+        return [
+            'items' => $items,
+            'page' => $page,
+            'per_page' => $per_page,
+            'total' => (int) $query->found_posts,
+            'total_pages' => (int) $query->max_num_pages,
+        ];
+    }
+
+    public function get_video($request) {
+        return $this->get_reel($request);
+    }
+
+    public function init_video_upload($request) {
+        $params = $request->get_json_params();
+        $filename = sanitize_file_name((string) ($params['filename'] ?? 'video.mp4'));
+        $mime_type = sanitize_text_field((string) ($params['mime_type'] ?? 'video/mp4'));
+        $size_bytes = absint($params['size_bytes'] ?? 0);
+        $caption = wp_kses_post((string) ($params['caption'] ?? ''));
+
+        if ($filename === '' || strpos($mime_type, 'video/') !== 0 || $size_bytes <= 0) {
+            return new WP_Error('invalid_upload', 'filename, mime_type, and size_bytes are required for a video upload', ['status' => 400]);
+        }
+
+        $storage = NailSocial_Storage::get_instance();
+        if (!$storage->is_configured()) {
+            return new WP_Error('storage_not_configured', 'Video storage is not configured in WordPress admin', ['status' => 500]);
+        }
+
+        $requested_author_id = !empty($params['user_id']) ? (int) $params['user_id'] : 0;
+        $this->assume_service_user_if_token($request);
+        $author_id = $this->resolve_author_id($requested_author_id, get_current_user_id());
+
+        $video_id = wp_insert_post([
+            'post_type' => 'reel',
+            'post_title' => wp_trim_words(wp_strip_all_tags($caption ?: $filename), 8, ''),
+            'post_content' => $caption,
+            'post_status' => 'draft',
+            'post_author' => $author_id,
+        ]);
+
+        if (is_wp_error($video_id)) {
+            return $video_id;
+        }
+
+        $storage_key = $storage->build_video_storage_key($video_id, $filename);
+        $upload_url = $storage->create_presigned_put_url($storage_key, $mime_type);
+        if (is_wp_error($upload_url)) {
+            wp_delete_post($video_id, true);
+            return $upload_url;
+        }
+
+        update_post_meta($video_id, 'storage_key', $storage_key);
+        update_post_meta($video_id, 'mime_type', $mime_type);
+        update_post_meta($video_id, 'size_bytes', $size_bytes);
+        update_post_meta($video_id, 'video_status', 'uploading');
+        update_post_meta($video_id, 'upload_filename', $filename);
+
+        return [
+            'video_id' => (int) $video_id,
+            'status' => 'uploading',
+            'storage_key' => $storage_key,
+            'upload_url' => $upload_url,
+            'expires_in' => $storage->get_settings()['upload_expiration'],
+        ];
+    }
+
+    public function complete_video_upload($request) {
+        $video_id = absint($request['id']);
+        $reel = get_post($video_id);
+        if (!$reel || $reel->post_type !== 'reel') {
+            return new WP_Error('video_not_found', 'Reel not found', ['status' => 404]);
+        }
+
+        $params = $request->get_json_params();
+        $storage_key = sanitize_text_field((string) ($params['storage_key'] ?? get_post_meta($video_id, 'storage_key', true)));
+        if ($storage_key === '') {
+            return new WP_Error('missing_storage_key', 'storage_key is required', ['status' => 400]);
+        }
+
+        $storage = NailSocial_Storage::get_instance();
+        if (!$storage->object_exists($storage_key)) {
+            return new WP_Error('object_missing', 'Uploaded video was not found in storage', ['status' => 409]);
+        }
+
+        $playback_url = $storage->get_public_url($storage_key);
+        $duration_seconds = isset($params['duration_seconds']) ? (float) $params['duration_seconds'] : 0;
+        $width = isset($params['width']) ? absint($params['width']) : 0;
+        $height = isset($params['height']) ? absint($params['height']) : 0;
+
+        update_post_meta($video_id, 'storage_key', $storage_key);
+        update_post_meta($video_id, 'playback_url', $playback_url);
+        update_post_meta($video_id, 'video_url', $playback_url);
+        update_post_meta($video_id, 'duration_seconds', $duration_seconds);
+        update_post_meta($video_id, 'video_width', $width);
+        update_post_meta($video_id, 'video_height', $height);
+        update_post_meta($video_id, 'video_status', 'processing');
+        update_post_meta($video_id, 'video_error', '');
+
+        NailSocial_Video_Processing::get_instance()->enqueue($video_id);
+
+        return [
+            'success' => true,
+            'status' => 'processing',
+            'video' => $this->format_reel_response(get_post($video_id)),
+        ];
     }
 
     /**
@@ -2106,21 +2300,7 @@ class NailSocial_API {
             return new WP_Error('no_reel', 'Reel not found', ['status' => 404]);
         }
 
-        $author_id = $reel->post_author;
-        return [
-            'id' => $reel->ID,
-            'image' => get_the_post_thumbnail_url($reel->ID, 'large') ?: '',
-            'videoUrl' => get_post_meta($reel->ID, 'video_url', true),
-            'description' => $reel->post_content,
-            'author' => get_the_author_meta('display_name', $author_id),
-            'music' => get_post_meta($reel->ID, 'music_title', true) ?: 'Original Audio',
-            'views' => get_post_meta($reel->ID, 'views_count', true) ?: '0',
-            'likes' => get_post_meta($reel->ID, 'likes_count', true) ?: '0',
-            'comments' => get_post_meta($reel->ID, 'comments_count', true) ?: '0',
-            'user' => [
-                'avatar' => get_user_meta($author_id, 'avatar_url', true) ?: get_avatar_url($author_id)
-            ]
-        ];
+        return $this->format_reel_response($reel);
     }
 
     /**

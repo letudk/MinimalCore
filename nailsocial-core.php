@@ -43,6 +43,8 @@ class NailSocial_Core {
 
     private function includes() {
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-db.php';
+        require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-storage.php';
+        require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-video-processing.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-settings.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-cpt.php';
         require_once NAILSOCIAL_CORE_PATH . 'includes/class-nailsocial-api.php';
@@ -62,6 +64,8 @@ class NailSocial_Core {
     public function init_features() {
         NailSocial_DB::maybe_upgrade();
         // Initialize child classes
+        NailSocial_Storage::get_instance();
+        NailSocial_Video_Processing::get_instance();
         NailSocial_Settings::get_instance();
         NailSocial_CPT::get_instance();
         NailSocial_API::get_instance();

@@ -57,6 +57,22 @@ class NailSocial_Settings {
                 'nailsocial_bank_holder' => 'sanitize_text_field',
             ],
         ],
+        'storage' => [
+            'label' => 'Video Storage',
+            'group' => 'nailsocial_settings_storage',
+            'options' => [
+                'nailsocial_storage_endpoint' => 'sanitize_url_field',
+                'nailsocial_storage_access_key' => 'sanitize_text_field',
+                'nailsocial_storage_secret_key' => 'sanitize_text_field',
+                'nailsocial_storage_bucket' => 'sanitize_text_field',
+                'nailsocial_storage_region' => 'sanitize_text_field',
+                'nailsocial_storage_cdn_base_url' => 'sanitize_url_field',
+                'nailsocial_storage_use_path_style' => 'sanitize_checkbox',
+                'nailsocial_storage_upload_expiration' => 'sanitize_positive_int',
+                'nailsocial_ffmpeg_path' => 'sanitize_text_field',
+                'nailsocial_ffprobe_path' => 'sanitize_text_field',
+            ],
+        ],
     ];
 
     public static function get_instance() {
@@ -124,6 +140,14 @@ class NailSocial_Settings {
         return in_array($value, ['pulse', 'shimmer'], true) ? $value : 'pulse';
     }
 
+    public function sanitize_url_field($value) {
+        return esc_url_raw(trim((string) $value));
+    }
+
+    public function sanitize_positive_int($value) {
+        return max(60, absint($value));
+    }
+
     private function get_default_option_value($option_name) {
         $defaults = [
             'nailsocial_env' => 'development',
@@ -142,6 +166,16 @@ class NailSocial_Settings {
             'nailsocial_bank_name' => '',
             'nailsocial_bank_account' => '',
             'nailsocial_bank_holder' => '',
+            'nailsocial_storage_endpoint' => '',
+            'nailsocial_storage_access_key' => '',
+            'nailsocial_storage_secret_key' => '',
+            'nailsocial_storage_bucket' => '',
+            'nailsocial_storage_region' => 'us-east-1',
+            'nailsocial_storage_cdn_base_url' => '',
+            'nailsocial_storage_use_path_style' => '1',
+            'nailsocial_storage_upload_expiration' => 900,
+            'nailsocial_ffmpeg_path' => 'ffmpeg',
+            'nailsocial_ffprobe_path' => 'ffprobe',
         ];
 
         return $defaults[$option_name] ?? '';
@@ -275,6 +309,68 @@ class NailSocial_Settings {
                         <tr>
                             <th scope="row">Account Holder</th>
                             <td><input type="text" name="nailsocial_bank_holder" value="<?php echo esc_attr(get_option('nailsocial_bank_holder', '')); ?>" class="regular-text"></td>
+                        </tr>
+                    </table>
+                <?php elseif ($active_tab === 'storage') : ?>
+                    <h2>S3-Compatible Video Storage</h2>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">Endpoint</th>
+                            <td>
+                                <input type="url" name="nailsocial_storage_endpoint" value="<?php echo esc_attr(get_option('nailsocial_storage_endpoint', '')); ?>" class="regular-text">
+                                <p class="description">Example: <code>https://s3-hn1-api.longvan.vn</code></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Access Key</th>
+                            <td><input type="text" name="nailsocial_storage_access_key" value="<?php echo esc_attr(get_option('nailsocial_storage_access_key', '')); ?>" class="regular-text"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Secret Key</th>
+                            <td>
+                                <input type="password" name="nailsocial_storage_secret_key" value="<?php echo esc_attr(get_option('nailsocial_storage_secret_key', '')); ?>" class="regular-text" autocomplete="new-password">
+                                <p class="description">Rotate this key if it was ever shared in chat, screenshots, or code.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Bucket Name</th>
+                            <td><input type="text" name="nailsocial_storage_bucket" value="<?php echo esc_attr(get_option('nailsocial_storage_bucket', '')); ?>" class="regular-text"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Region</th>
+                            <td><input type="text" name="nailsocial_storage_region" value="<?php echo esc_attr(get_option('nailsocial_storage_region', 'us-east-1')); ?>" class="regular-text"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">CDN/Base Public URL</th>
+                            <td>
+                                <input type="url" name="nailsocial_storage_cdn_base_url" value="<?php echo esc_attr(get_option('nailsocial_storage_cdn_base_url', '')); ?>" class="regular-text">
+                                <p class="description">Optional. If set, playback and thumbnail URLs will use this base URL instead of the raw storage endpoint.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Use Path Style Endpoint</th>
+                            <td>
+                                <input type="hidden" name="nailsocial_storage_use_path_style" value="0">
+                                <input type="checkbox" name="nailsocial_storage_use_path_style" value="1" <?php checked(get_option('nailsocial_storage_use_path_style', '1'), '1'); ?>>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Signed Upload Expiration (seconds)</th>
+                            <td><input type="number" min="60" step="60" name="nailsocial_storage_upload_expiration" value="<?php echo esc_attr((string) get_option('nailsocial_storage_upload_expiration', 900)); ?>" class="small-text"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">ffmpeg Path</th>
+                            <td>
+                                <input type="text" name="nailsocial_ffmpeg_path" value="<?php echo esc_attr(get_option('nailsocial_ffmpeg_path', 'ffmpeg')); ?>" class="regular-text">
+                                <p class="description">Example: <code>/usr/bin/ffmpeg</code> or just <code>ffmpeg</code> if it is on PATH.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">ffprobe Path</th>
+                            <td>
+                                <input type="text" name="nailsocial_ffprobe_path" value="<?php echo esc_attr(get_option('nailsocial_ffprobe_path', 'ffprobe')); ?>" class="regular-text">
+                                <p class="description">Used to read video duration and dimensions before setting status to ready.</p>
+                            </td>
                         </tr>
                     </table>
                 <?php endif; ?>
